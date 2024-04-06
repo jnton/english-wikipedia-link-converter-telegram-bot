@@ -60,9 +60,9 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
                         if 'enwiki' in wd_data['entities'][wikidata_id]['sitelinks']:
                             en_title = wd_data['entities'][wikidata_id]['sitelinks']['enwiki']['title']
                             en_url = f"https://en.wikipedia.org/wiki/{en_title.replace(' ', '_')}"
-                            return f"English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a>:\n{en_url}"
+                            return f"<b>English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a></b>:\n{en_url}"
                         else:
-                            return f"No English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a>."
+                            return f"<b>No English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a></b>."
     return None
 
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -132,14 +132,14 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             results = [InlineQueryResultArticle(
                 id=str(uuid4()),
                 title="No Valid Links",
-                input_message_content=InputTextMessageContent("No valid non-English Wikipedia page URLs found."),
+                input_message_content=InputTextMessageContent("No valid non-English Wikipedia page URL found."),
                 description="No valid links processed"
             )]
     else:
         results = [InlineQueryResultArticle(
             id=str(uuid4()),
             title="No Non-English Links",
-            input_message_content=InputTextMessageContent("Please enter non-English Wikipedia page URLs."),
+            input_message_content=InputTextMessageContent("Please enter non-English Wikipedia page URL(s)."),
             description="Only non-English Wikipedia links are processed"
         )]
 
