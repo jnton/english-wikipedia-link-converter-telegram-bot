@@ -65,18 +65,25 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
                             return f"<b>No English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a></b>."
     return None
 
+import re
+from urllib.parse import unquote
+import aiohttp
+from telegram import Update, ContextTypes
+
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message.text
-    links = re.findall(r'https?://[^\s]+', message)
+    links = re.findall(r'https?://[^\s]+', message)  # Regex to capture all URLs in the message
     ordered_unique_links = []  # Initialize as list to maintain order
     seen_titles = set()  # To track unique titles and avoid processing duplicates
 
     # Filter for unique non-English Wikipedia links
     for link in links:
         if 'wikipedia.org/wiki/' in link and not link.startswith('https://en.wikipedia.org/wiki/'):
-            title = link.split('/wiki/')[-1]
+            # Decode only for checking uniqueness and title extraction, keep original URL for processing
+            decoded_link = unquote(link)
+            title = decoded_link.split('/wiki/')[-1]
             if title not in seen_titles:  # Ensure unique Wikipedia titles
-                ordered_unique_links.append(link)  # Maintain order of first occurrence
+                ordered_unique_links.append(link)  # Keep the original, encoded link for processing
                 seen_titles.add(title)  # Remember title to ensure uniqueness
 
     if ordered_unique_links:  # Check if there are any links to process
@@ -85,13 +92,13 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             for link in ordered_unique_links:  # Iterate over links maintaining their original order
                 match = re.search(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)', link)
                 if match:
-                    language_code, article_title = match.groups()
-                    article_title = article_title.replace('_', ' ')  # Correct title format
-                    original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title.replace(' ', '_')}"
-                    if language_code != 'en':  # Skip if already in English
+                    language_code, article_title_encoded = match.groups()
+                    article_title = unquote(article_title_encoded)  # Decode for API calls/display
+                    original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title_encoded}"  # Use encoded title for URL
+                    if language_code != 'en':  # Process only if not already in English
                         response = await get_english_wikipedia_url(session, original_url, article_title, language_code)
                         if response:
-                            responses.append(response)  # Collect responses
+                            responses.append(response)  # Collect and append response
 
         if responses:  # If there are responses to send back
             reply_message = "\n\n".join(responses)  # Aggregate responses into a single message
