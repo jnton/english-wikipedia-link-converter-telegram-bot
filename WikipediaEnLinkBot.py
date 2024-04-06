@@ -67,26 +67,39 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
 
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message.text
-    wiki_link_regex = re.compile(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)')
-    matches = wiki_link_regex.findall(message)
-    unique_links = set(matches)  # Create a set of unique links to avoid processing duplicates
-    
+    # Use a more inclusive regex pattern for capturing all URLs
+    links = re.findall(r'https?://[^\s]+', message)
+    unique_links = set()
+    seen_titles = set()
+
+    # Filter for unique non-English Wikipedia links
+    for link in links:
+        if 'wikipedia.org/wiki/' in link and not link.startswith('https://en.wikipedia.org/wiki/'):
+            title = link.split('/wiki/')[-1]
+            if title not in seen_titles:  # Ensure unique Wikipedia titles
+                unique_links.add(link)
+                seen_titles.add(title)
+
     if unique_links:
         responses = []
         async with aiohttp.ClientSession() as session:
-            for match in unique_links:
-                language_code, article_title = match
-                original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title}"
-                if language_code == 'en':  # Skip English Wikipedia links
-                    continue
-                response = await get_english_wikipedia_url(session, original_url, article_title.replace('_', ' '), language_code)
-                if response:
-                    responses.append(response)
-            
+            for link in unique_links:
+                # Extract language code and article title from the URL
+                match = re.search(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)', link)
+                if match:
+                    language_code, article_title = match.groups()
+                    article_title = article_title.replace('_', ' ')  # Replace underscores with spaces
+                    original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title.replace(' ', '_')}"
+                    if language_code != 'en':  # Process non-English links
+                        response = await get_english_wikipedia_url(session, original_url, article_title, language_code)
+                        if response:
+                            responses.append(response)
+
+            # Reply with the processed links
             if responses:
-                sorted_responses = sorted(set(responses))  # Sort and remove duplicates
+                sorted_responses = sorted(set(responses))  # Remove duplicates
                 reply_message = "\n\n".join(sorted_responses)
-                await update.message.reply_text(reply_message, reply_to_message_id=update.message.message_id, parse_mode='HTML')
+                await update.message.reply_text(reply_message, parse_mode='HTML')
 
 async def process_link(session, original_url):
     match = re.search(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)', original_url)
