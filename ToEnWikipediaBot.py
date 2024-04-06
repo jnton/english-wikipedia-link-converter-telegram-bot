@@ -176,7 +176,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "You can find my source code here: https://github.com/JnTon/WikipediaEnLinkBot\n\nFeel free to contribute or fork to create your own version!"
+        "You can find my source code here: https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!"
     )
 
 
