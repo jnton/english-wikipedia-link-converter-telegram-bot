@@ -1,0 +1,30 @@
+name: Deploy Telegram Bot to AWS Lambda
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    - name: Package Application
+      run: |
+        zip -r package.zip . -x "*.git*" "venv/*" ".env*" ".github/*"
+    - name: Deploy to AWS Lambda
+      uses: appleboy/lambda-action@v0.0.11
+      with:
+        aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws_region: ${{ secrets.AWS_REGION }}
+        function_name: "YourLambdaFunctionName"
+        zip_file: package.zip
