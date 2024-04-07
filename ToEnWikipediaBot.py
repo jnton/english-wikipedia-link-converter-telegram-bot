@@ -66,11 +66,6 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
                             return f"<b>No English Wikipedia page found for <a href=\"{original_url}\">{correct_title}</a></b>."
     return None
 
-import re
-from urllib.parse import unquote
-import aiohttp
-from telegram import Update, ContextTypes
-
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message.text
     links = re.findall(r'https?://[^\s]+', message)  # Regex to capture all URLs in the message
@@ -103,7 +98,7 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if responses:  # If there are responses to send back
             reply_message = "\n\n".join(responses)  # Aggregate responses into a single message
-            await update.message.reply_text(reply_message, parse_mode='HTML')  # Send reply
+            await update.message.reply_text(reply_message, parse_mode='HTML', disable_web_page_preview=True)  # Send reply
 
 async def process_link(session, original_url):
     # Decode the URL to ensure special characters are handled properly
@@ -146,7 +141,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             results = [InlineQueryResultArticle(
                 id=str(uuid4()),
                 title="Wikipedia Links",
-                input_message_content=InputTextMessageContent(aggregated_response, parse_mode='HTML'),
+                input_message_content=InputTextMessageContent(aggregated_response, parse_mode='HTML', disable_web_page_preview=True),
                 description="Aggregated English Wikipedia Links"
             )]
         else:
