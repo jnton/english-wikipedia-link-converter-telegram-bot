@@ -1,0 +1,24 @@
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday at 00:00 UTC
+
+jobs:
+  update-requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      - name: Install pip-tools
+        run: pip install pip-tools
+      - name: Compile the new requirements.txt
+        run: pip-compile requirements.in
+      - name: Commit and push if changes are detected
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add requirements.txt
+          git commit -m "Update requirements.txt" -a || echo "No changes to commit"
+          git push
