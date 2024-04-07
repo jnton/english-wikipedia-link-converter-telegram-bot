@@ -106,12 +106,16 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(reply_message, parse_mode='HTML')  # Send reply
 
 async def process_link(session, original_url):
-    match = re.search(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)', original_url)
+    # Decode the URL to ensure special characters are handled properly
+    decoded_url = unquote(original_url)
+    match = re.search(r'https?://([a-z]{2,3})\.wikipedia\.org/wiki/(.+)', decoded_url)
     if match:
-        language_code, article_title = match.groups()
+        language_code, article_title_encoded = match.groups()
         if language_code == 'en':  # Skip English Wikipedia links
             return None
-        article_title = re.sub('_', ' ', article_title)  # Decode URL-encoded article title
+        # Decode article title for API calls/display
+        article_title = unquote(article_title_encoded).replace('_', ' ')
+        # Use the original (encoded) URL for consistency with external requests
         response = await get_english_wikipedia_url(session, original_url, article_title, language_code)
         if response:
             return f"{response}\n\n"
