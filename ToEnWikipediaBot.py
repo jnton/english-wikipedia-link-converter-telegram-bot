@@ -3,7 +3,7 @@ import re
 from urllib.parse import unquote
 import aiohttp
 import asyncio
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent
+from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
 from uuid import uuid4
 
@@ -67,10 +67,23 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
     return None
 
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.message.text
-    links = re.findall(r'https?://[^\s]+', message)  # Regex to capture all URLs in the message
+    message = update.message     
+    links = []
     ordered_unique_links = []  # Initialize as list to maintain order
     seen_titles = set()  # To track unique titles and avoid processing duplicates
+
+    # Check for URLs in plain text
+    if message.text:
+        links.extend(re.findall(r'https?://[^\s]+', message.text))  # Regex to capture all URLs in the message
+
+    # Check for URLs in entities
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == MessageEntity.URL:
+                url = message.text[entity.offset:entity.offset + entity.length]
+                links.append(url)
+            elif entity.type == MessageEntity.TEXT_LINK:
+                links.append(entity.url)
 
     # Filter for unique non-English Wikipedia links
     for link in links:
