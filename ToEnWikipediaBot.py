@@ -86,7 +86,7 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         responses = []
         async with aiohttp.ClientSession() as session:
             for link in ordered_unique_links:  # Iterate over links maintaining their original order
-                match = re.search(r'https?://([a-z]{2,3})\.m?\.wikipedia\.org/wiki/(.+)', link)
+                match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', link)
                 if match:
                     language_code, article_title_encoded = match.groups()
                     article_title = unquote(article_title_encoded)  # Decode for API calls/display
@@ -103,7 +103,7 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def process_link(session, original_url):
     # Decode the URL to ensure special characters are handled properly
     decoded_url = unquote(original_url)
-    match = re.search(r'https?://([a-z]{2,3})\.m?\.wikipedia\.org/wiki/(.+)', decoded_url)
+    match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', decoded_url)
     if match:
         language_code, article_title_encoded = match.groups()
         if language_code == 'en':  # Skip English Wikipedia links
