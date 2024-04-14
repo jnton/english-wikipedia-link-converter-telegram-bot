@@ -215,6 +215,33 @@ def setup_handlers(application):
 
 # Define the Lambda handler
 def lambda_handler(event, context):
+        try:
+        # Check if 'body' exists and is not None
+        if 'body' in event and event['body'] is not None:
+            # If body is a string, it needs to be loaded as JSON
+            request_body = json.loads(event['body'])
+        else:
+            logger.error("No body found in the event.")
+            return {
+                'statusCode': 400,
+                'body': json.dumps('No request body found')
+            }
+
+        # Continue processing with the loaded request body
+        update = Update.de_json(request_body, application.bot)
+        application.process_update(update)
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Success')
+        }
+
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps('An internal server error occurred')
+        }
     try:
         # Retrieve the token from environment variables
         token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
