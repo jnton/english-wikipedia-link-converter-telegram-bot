@@ -235,15 +235,13 @@ def lambda_handler(event, context):
     """Synchronous wrapper for the asynchronous Lambda handler."""
     # Check if 'body' exists in the event
     if 'body' not in event:
-        logger.error("No 'body' key in event. Event does not contain expected data.")
-        return {'statusCode': 400, 'body': 'Event structure incorrect or missing data'}
-
-    # Convert the 'body' from JSON format if it's a string
+        return {'statusCode': 400, 'body': json.dumps({'message': 'Event structure incorrect or missing data'}), 'headers': {'Content-Type': 'application/json'}}
+    # Convert the 'body' from JSON format if it's a string        
     try:
         event_body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding event body: {str(e)}")
-        return {'statusCode': 400, 'body': 'JSON decode error'}
+        return {'statusCode': 400, 'body': json.dumps({'message': 'JSON decode error'}), 'headers': {'Content-Type': 'application/json'}}
 
     # Pass the parsed JSON to the async handler
     event['body'] = event_body
