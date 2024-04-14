@@ -217,18 +217,13 @@ async def async_lambda_handler(event, context):
     application = Application.builder().token(token).build()
     setup_handlers(application)
 
-    if 'body' in event:
-        try:
-            update_data = json.loads(event['body'])
-            update = Update.de_json(update_data, application.bot)
-            await application.process_update(update)
-            return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
-        except Exception as e:
-            logging.error(f"An error occurred while processing the update: {e}")
-            return {'statusCode': 500, 'body': json.dumps({'message': 'Internal server error'})}
-    else:
-        logging.error("No update payload found.")
-        return {'statusCode': 400, 'body': json.dumps({'message': 'No update payload'})}
+    try:
+        update = Update.de_json(event_body, application.bot)
+        await application.process_update(update)
+        return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
+    except Exception as e:
+        logging.error(f"An error occurred while processing the update: {e}")
+        return {'statusCode': 500, 'body': json.dumps({'message': 'Internal server error'})}
 
 def lambda_handler(event, context):
     print("Received event:", event)  # Log the incoming event data
@@ -236,16 +231,15 @@ def lambda_handler(event, context):
     # Check if 'body' exists in the event
     if 'body' not in event:
         return {'statusCode': 400, 'body': json.dumps({'message': 'Event structure incorrect or missing data'}), 'headers': {'Content-Type': 'application/json'}}
-    # Convert the 'body' from JSON format if it's a string        
+    # Assume event['body'] is already a string (which should be the case in AWS Lambda environment)
     try:
-        event_body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        event_body = json.loads(event['body'])
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding event body: {str(e)}")
         return {'statusCode': 400, 'body': json.dumps({'message': 'JSON decode error'}), 'headers': {'Content-Type': 'application/json'}}
 
-    # Pass the parsed JSON to the async handler
-    event['body'] = event_body
-    return asyncio.run(async_lambda_handler(event, context))
+    # Run the asynchronous handler and pass the parsed JSON
+    return asyncio.run(async_lambda_handler(event_body, context))
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
