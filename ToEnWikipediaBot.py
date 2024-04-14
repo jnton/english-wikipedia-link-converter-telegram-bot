@@ -215,62 +215,31 @@ def setup_handlers(application):
 
 # Define the Lambda handler
 def lambda_handler(event, context):
-    try:
-        # Check if 'body' exists and is not None
-        if 'body' in event and event['body'] is not None:
-            # If body is a string, it needs to be loaded as JSON
+    # Retrieve the token from environment variables
+    token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
+        return {'statusCode': 500, 'body': json.dumps('Telegram bot token not found')}
+
+    # Instantiate the Application with the token
+    application = Application.builder().token(token).build()
+
+    # Add handlers
+    setup_handlers(application)
+
+    # Check if 'body' exists and is not None
+    if 'body' in event and event['body'] is not None:
+        try:
             request_body = json.loads(event['body'])
-        else:
-            logger.error("No body found in the event.")
-            return {
-                'statusCode': 400,
-                'body': json.dumps('No request body found')
-            }
-
-        # Continue processing with the loaded request body
-        update = Update.de_json(request_body, application.bot)
-        application.process_update(update)
-
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Success')
-        }
-
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps('An internal server error occurred')
-        }
-    try:
-        # Retrieve the token from environment variables
-        token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
-        if not token:
-            logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
-            raise ValueError("Telegram bot token not found")
-
-        # Set up the Telegram bot application
-        application = Application.builder().token(token).build()
-
-        # Define and add handlers to the application
-        setup_handlers(application)
-
-        # Process the incoming event (Telegram update)
-        update = Update.de_json(json.loads(event['body']), application.bot)
-        application.process_update(update)
-
-        # Return a simple HTTP response
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Hello from your Telegram bot!')
-        }
-
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps('An error occurred')
-        }
+            update = Update.de_json(request_body, application.bot)
+            application.process_update(update)
+            return {'statusCode': 200, 'body': json.dumps('Success')}
+        except Exception as e:
+            logger.error(f"An error occurred: {e}")
+            return {'statusCode': 500, 'body': json.dumps('An internal server error occurred')}
+    else:
+        logger.error("No body found in the event.")
+        return {'statusCode': 400, 'body': json.dumps('No request body found')}
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
