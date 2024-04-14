@@ -1,7 +1,9 @@
+import os
 import logging
 import re
 from urllib.parse import unquote
 import aiohttp
+import json
 import asyncio
 from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
@@ -194,14 +196,39 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "You can find my source code here: https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!"
     )
+# Define the Lambda handler
+def lambda_handler(event, context):
+    # Set up the bot with your token
+    application = Application.builder().token("YOUR_TELEGRAM_BOT_TOKEN").build()
 
-
-if __name__ == '__main__':
-    application = Application.builder().token("YOUR_TELEGRAM_BOT_TOKEN").build()  # Replace with your actual token
+    # Handlers
+    source_handler = CommandHandler('source', source)
     wiki_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
     inline_handler = InlineQueryHandler(inline_query)
-    source_handler = CommandHandler('source', source)
+
+    # Add handlers to the application
     application.add_handler(source_handler)
     application.add_handler(wiki_handler)
     application.add_handler(inline_handler)
-    application.run_polling()
+
+    # This will start the bot and keep it running inside the Lambda environment
+    asyncio.run(application.run_polling())
+
+    # Return a simple HTTP response
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from your Telegram bot!')
+    }
+
+# Ensure this part is not executed when the script is imported as a module in Lambda
+#if __name__ == '__main__':
+    # Run the bot normally if this script is executed locally
+#    asyncio.run(main())
+#    application = Application.builder().token("YOUR_TELEGRAM_BOT_TOKEN").build()  # Replace with your actual token
+#    wiki_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
+#    inline_handler = InlineQueryHandler(inline_query)
+#    source_handler = CommandHandler('source', source)
+#    application.add_handler(source_handler)
+#    application.add_handler(wiki_handler)
+#    application.add_handler(inline_handler)
+#    application.run_polling()
