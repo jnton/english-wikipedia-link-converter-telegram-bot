@@ -196,29 +196,38 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "You can find my source code here: https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!"
     )
+    
 # Define the Lambda handler
 def lambda_handler(event, context):
-    # Set up the bot with your token
-    application = Application.builder().token("YOUR_TELEGRAM_BOT_TOKEN").build()
+    try:
+        # Retrieve the token from environment variables
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not token:
+            logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
+            raise ValueError("Telegram bot token not found")
 
-    # Handlers
-    source_handler = CommandHandler('source', source)
-    wiki_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
-    inline_handler = InlineQueryHandler(inline_query)
+        # Set up the Telegram bot application
+        application = Application.builder().token(token).build()
 
-    # Add handlers to the application
-    application.add_handler(source_handler)
-    application.add_handler(wiki_handler)
-    application.add_handler(inline_handler)
+        # Define and add handlers to the application
+        setup_handlers(application)
 
-    # This will start the bot and keep it running inside the Lambda environment
-    asyncio.run(application.run_polling())
+        # Process the incoming event (Telegram update)
+        update = Update.de_json(json.loads(event['body']), application.bot)
+        application.process_update(update)
 
-    # Return a simple HTTP response
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Hello from your Telegram bot!')
-    }
+        # Return a simple HTTP response
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Hello from your Telegram bot!')
+        }
+
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps('An error occurred')
+        }
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
