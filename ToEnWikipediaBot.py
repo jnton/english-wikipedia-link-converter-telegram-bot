@@ -231,7 +231,22 @@ async def async_lambda_handler(event, context):
         return {'statusCode': 400, 'body': 'No update payload'}
 
 def lambda_handler(event, context):
+    print("Received event:", event)  # Log the incoming event data
     """Synchronous wrapper for the asynchronous Lambda handler."""
+    # Check if 'body' exists in the event
+    if 'body' not in event:
+        logger.error("No 'body' key in event. Event does not contain expected data.")
+        return {'statusCode': 400, 'body': 'Event structure incorrect or missing data'}
+
+    # Convert the 'body' from JSON format if it's a string
+    try:
+        event_body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding event body: {str(e)}")
+        return {'statusCode': 400, 'body': 'JSON decode error'}
+
+    # Pass the parsed JSON to the async handler
+    event['body'] = event_body
     return asyncio.run(async_lambda_handler(event, context))
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
