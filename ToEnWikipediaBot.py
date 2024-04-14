@@ -214,7 +214,8 @@ def setup_handlers(application):
     application.add_handler(inline_query_handler)
 
 # Define the Lambda handler
-async def lambda_handler(event, context):
+async def lambda_handler_async(event, context):
+    """Asynchronous handler processing updates from Telegram"""
     token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
@@ -235,6 +236,11 @@ async def lambda_handler(event, context):
     else:
         logger.error("No body found in the event.")
         return {'statusCode': 400, 'body': json.dumps('No request body found')}
+
+# Synchronous wrapper to handle the async handler
+def lambda_handler(event, context):
+    """Synchronous wrapper for the asynchronous handler"""
+    return asyncio.run(lambda_handler_async(event, context))
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
