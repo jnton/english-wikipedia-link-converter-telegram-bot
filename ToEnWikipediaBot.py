@@ -215,7 +215,7 @@ def setup_handlers(application):
 
 # Define the Lambda handler
 def lambda_handler(event, context):
-        try:
+    try:
         # Check if 'body' exists and is not None
         if 'body' in event and event['body'] is not None:
             # If body is a string, it needs to be loaded as JSON
