@@ -214,25 +214,20 @@ def setup_handlers(application):
     application.add_handler(inline_query_handler)
 
 # Define the Lambda handler
-def lambda_handler(event, context):
-    # Retrieve the token from environment variables
+async def lambda_handler(event, context):
     token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
         return {'statusCode': 500, 'body': json.dumps('Telegram bot token not found')}
 
-    # Instantiate the Application with the token
     application = Application.builder().token(token).build()
-
-    # Add handlers
     setup_handlers(application)
 
-    # Check if 'body' exists and is not None
-    if 'body' in event and event['body'] is not None:
+    if 'body' in event and event['body']:
         try:
             request_body = json.loads(event['body'])
             update = Update.de_json(request_body, application.bot)
-            application.process_update(update)
+            await application.process_update(update)
             return {'statusCode': 200, 'body': json.dumps('Success')}
         except Exception as e:
             logger.error(f"An error occurred: {e}")
@@ -240,19 +235,6 @@ def lambda_handler(event, context):
     else:
         logger.error("No body found in the event.")
         return {'statusCode': 400, 'body': json.dumps('No request body found')}
-
-    # Process the update
-    try:
-        if 'body' in event and event['body']:
-            update = Update.de_json(json.loads(event['body']), application.bot)
-            application.process_update(update)
-            return {'statusCode': 200, 'body': json.dumps('Success')}
-        else:
-            logger.error("No body found in the event.")
-            return {'statusCode': 400, 'body': json.dumps('No request body found')}
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        return {'statusCode': 500, 'body': json.dumps('An internal server error occurred')}
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
