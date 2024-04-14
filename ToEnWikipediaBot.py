@@ -201,7 +201,7 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def lambda_handler(event, context):
     try:
         # Retrieve the token from environment variables
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
         if not token:
             logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
             raise ValueError("Telegram bot token not found")
