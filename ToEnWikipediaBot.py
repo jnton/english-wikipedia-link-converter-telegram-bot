@@ -200,12 +200,10 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def setup_handlers(application):
     """ Configure Telegram bot handlers for the application. """
     # Define command handlers and other message handlers
-    start_handler = CommandHandler('start', start)
     check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
     inline_query_handler = InlineQueryHandler(inline_query)
 
     # Add handlers to the application
-    application.add_handler(start_handler)
     application.add_handler(check_wiki_link_handler)
     application.add_handler(inline_query_handler)
 
