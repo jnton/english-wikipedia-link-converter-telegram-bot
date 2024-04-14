@@ -196,7 +196,23 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "You can find my source code here: https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!"
     )
-    
+
+def setup_handlers(application):
+    # Define a simple command handler
+    def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        update.message.reply_text('Hello! Welcome to the bot.')
+
+    # Add the start command handler
+    start_handler = CommandHandler('start', start)
+    application.add_handler(start_handler)
+
+    # Example of adding your existing handlers
+    check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
+    inline_query_handler = InlineQueryHandler(inline_query)
+
+    application.add_handler(check_wiki_link_handler)
+    application.add_handler(inline_query_handler)
+
 # Define the Lambda handler
 def lambda_handler(event, context):
     try:
