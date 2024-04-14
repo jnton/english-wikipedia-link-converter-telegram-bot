@@ -198,49 +198,43 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 def setup_handlers(application):
-    # Define a simple command handler
-    def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        update.message.reply_text('Hello! Welcome to the bot.')
-
-    # Add the start command handler
+    """ Configure Telegram bot handlers for the application. """
+    # Define command handlers and other message handlers
     start_handler = CommandHandler('start', start)
-    application.add_handler(start_handler)
-
-    # Example of adding your existing handlers
     check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
     inline_query_handler = InlineQueryHandler(inline_query)
 
+    # Add handlers to the application
+    application.add_handler(start_handler)
     application.add_handler(check_wiki_link_handler)
     application.add_handler(inline_query_handler)
 
-# Define the Lambda handler
-async def lambda_handler_async(event, context):
-    """Asynchronous handler processing updates from Telegram"""
+async def async_lambda_handler(event, context):
+    """Asynchronous handler for processing Telegram updates."""
     token = os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("Telegram bot token not found. Please set it in the Lambda environment variables.")
-        return {'statusCode': 500, 'body': json.dumps('Telegram bot token not found')}
+        return {'statusCode': 500, 'body': 'Bot token not found'}
 
     application = Application.builder().token(token).build()
     setup_handlers(application)
 
-    if 'body' in event and event['body']:
+    if 'body' in event:
         try:
-            request_body = json.loads(event['body'])
-            update = Update.de_json(request_body, application.bot)
+            update_data = json.loads(event['body'])
+            update = Update.de_json(update_data, application.bot)
             await application.process_update(update)
-            return {'statusCode': 200, 'body': json.dumps('Success')}
+            return {'statusCode': 200, 'body': 'Success'}
         except Exception as e:
-            logger.error(f"An error occurred: {e}")
-            return {'statusCode': 500, 'body': json.dumps('An internal server error occurred')}
+            logger.error(f"An error occurred while processing the update: {str(e)}")
+            return {'statusCode': 500, 'body': 'Internal server error'}
     else:
-        logger.error("No body found in the event.")
-        return {'statusCode': 400, 'body': json.dumps('No request body found')}
+        logger.error("No update payload found.")
+        return {'statusCode': 400, 'body': 'No update payload'}
 
-# Synchronous wrapper to handle the async handler
 def lambda_handler(event, context):
-    """Synchronous wrapper for the asynchronous handler"""
-    return asyncio.run(lambda_handler_async(event, context))
+    """Synchronous wrapper for the asynchronous Lambda handler."""
+    return asyncio.run(async_lambda_handler(event, context))
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
