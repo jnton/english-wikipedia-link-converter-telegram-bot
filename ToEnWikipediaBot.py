@@ -217,13 +217,18 @@ async def async_lambda_handler(event, context):
     application = Application.builder().token(token).build()
     setup_handlers(application)
 
-    try:
-        update = Update.de_json(event_body, application.bot)
-        await application.process_update(update)
-        return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
-    except Exception as e:
-        logging.error(f"An error occurred while processing the update: {e}")
-        return {'statusCode': 500, 'body': json.dumps({'message': 'Internal server error'})}
+    if 'body' in event:
+        try:
+            update_data = json.loads(event['body'])
+            update = Update.de_json(update_data, application.bot)
+            await application.process_update(update)
+            return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
+        except Exception as e:
+            logger.error(f"An error occurred while processing the update: {e}")
+            return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
+    else:
+        logger.error("No update payload found.")
+        return {'statusCode': 400, 'body': json.dumps({'message': 'No update payload'})}
 
 def lambda_handler(event, context):
     print("Received event:", event)  # Log the incoming event data
