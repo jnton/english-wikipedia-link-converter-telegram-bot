@@ -245,14 +245,20 @@ def lambda_handler(event, context):
     print("Received event:", event)  # Log the incoming event data
     print("Received update:", body)
     
+    logger.info(f"Received event: {event}")  # Log the full event for debugging
     if 'body' not in event:
+        logger.error("No 'body' in event. Event structure incorrect or missing data.")
         return {'statusCode': 400, 'body': json.dumps({'message': 'Event structure incorrect or missing data'}), 'headers': {'Content-Type': 'application/json'}}
 
     try:
-        event_body = json.loads(event['body'])
-    except json.JSONDecodeError as e:
-        logger.error(f"Error decoding event body: {str(e)}")
-        return {'statusCode': 400, 'body': json.dumps({'message': 'JSON decode error'}), 'headers': {'Content-Type': 'application/json'}}
+        body = json.loads(event['body'])
+        logger.info(f"Parsed body: {body}")
+    except json.JSONDecodeError as error:
+        logger.error(f"Error decoding JSON: {error}")
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"message": "Invalid JSON received"})
+        }
 
     # Run the asynchronous handler and pass the parsed JSON
     return asyncio.run(async_lambda_handler(event_body, context))
