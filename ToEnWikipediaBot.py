@@ -232,32 +232,27 @@ async def async_lambda_handler(event, context):
 
 def lambda_handler(event, context):
     print("Raw event:", event)
-    print("Body parsed:", body)
-    print("Received event:", event)  # Log the incoming event data
-        try:
+    try:
         body = json.loads(event['body'])  # Parse the JSON body
-        # Now, you can access the body as a Python dictionary
-        print("Received update:", body)
+        print("Body parsed:", body)
     except json.JSONDecodeError as error:
         print("Error decoding JSON:", error)
         return {
             "statusCode": 400,
             "body": json.dumps({"message": "Invalid JSON received"})
         }
-    """Synchronous wrapper for the asynchronous Lambda handler."""
-    # Check if 'body' exists in the event
+
+    print("Received event:", event)  # Log the incoming event data
+    print("Received update:", body)
+    
     if 'body' not in event:
         return {'statusCode': 400, 'body': json.dumps({'message': 'Event structure incorrect or missing data'}), 'headers': {'Content-Type': 'application/json'}}
-    # Assume event['body'] is already a string (which should be the case in AWS Lambda environment)
+
     try:
         event_body = json.loads(event['body'])
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding event body: {str(e)}")
         return {'statusCode': 400, 'body': json.dumps({'message': 'JSON decode error'}), 'headers': {'Content-Type': 'application/json'}}
-            return {
-        "statusCode": 200,
-        "body": json.dumps({"message": "Success"})
-    }
 
     # Run the asynchronous handler and pass the parsed JSON
     return asyncio.run(async_lambda_handler(event_body, context))
