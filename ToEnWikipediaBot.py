@@ -221,7 +221,9 @@ async def async_lambda_handler(event, context):
         try:
             update_data = json.loads(event['body'])
             update = Update.de_json(update_data, application.bot)
+            await application.initialize()
             await application.process_update(update)
+            await application.shutdown()
             return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
         except Exception as e:
             logger.error(f"An error occurred while processing the update: {e}")
