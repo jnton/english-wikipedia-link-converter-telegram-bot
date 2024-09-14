@@ -251,7 +251,7 @@ def lambda_handler(event, context):
         }
 
     # Ensure to use the correct variable name that contains the parsed JSON
-    return asyncio.run(async_lambda_handler(body, context))
+    return asyncio.run(async_lambda_handler(event, context))
 
 # Ensure this part is not executed when the script is imported as a module in Lambda
 #if __name__ == '__main__':
