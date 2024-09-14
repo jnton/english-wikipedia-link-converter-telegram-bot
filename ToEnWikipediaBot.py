@@ -69,51 +69,61 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
     return None
 
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.message     
-    links = []
-    ordered_unique_links = []  # Initialize as list to maintain order
-    seen_titles = set()  # To track unique titles and avoid processing duplicates
+    try:
+        message = update.message     
+        links = []
+        ordered_unique_links = []  # Initialize as list to maintain order
+        seen_titles = set()  # To track unique titles and avoid processing duplicates
 
-    # Check for URLs in plain text
-    if message.text:
-        links.extend(re.findall(r'https?://[^\s]+', message.text))  # Regex to capture all URLs in the message
+        # Check for URLs in plain text
+        if message.text:
+            links.extend(re.findall(r'https?://[^\s]+', message.text))  # Regex to capture all URLs in the message
 
-    # Check for URLs in entities
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == MessageEntity.URL:
-                url = message.text[entity.offset:entity.offset + entity.length]
-                links.append(url)
-            elif entity.type == MessageEntity.TEXT_LINK:
-                links.append(entity.url)
+        # Check for URLs in entities
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == MessageEntity.URL:
+                    url = message.text[entity.offset:entity.offset + entity.length]
+                    links.append(url)
+                elif entity.type == MessageEntity.TEXT_LINK:
+                    links.append(entity.url)
 
-    # Filter for unique non-English Wikipedia links
-    for link in links:
-        if 'wikipedia.org/wiki/' in link and not link.startswith('https://en.wikipedia.org/wiki/'):
-            # Decode only for checking uniqueness and title extraction, keep original URL for processing
-            decoded_link = unquote(link)
-            title = decoded_link.split('/wiki/')[-1]
-            if title not in seen_titles:  # Ensure unique Wikipedia titles
-                ordered_unique_links.append(link)  # Keep the original, encoded link for processing
-                seen_titles.add(title)  # Remember title to ensure uniqueness
+        # Filter for unique non-English Wikipedia links
+        for link in links:
+            if 'wikipedia.org/wiki/' in link and not link.startswith('https://en.wikipedia.org/wiki/'):
+                # Decode only for checking uniqueness and title extraction, keep original URL for processing
+                decoded_link = unquote(link)
+                title = decoded_link.split('/wiki/')[-1]
+                if title not in seen_titles:  # Ensure unique Wikipedia titles
+                    ordered_unique_links.append(link)  # Keep the original, encoded link for processing
+                    seen_titles.add(title)  # Remember title to ensure uniqueness
 
-    if ordered_unique_links:  # Check if there are any links to process
-        responses = []
-        async with aiohttp.ClientSession() as session:
-            for link in ordered_unique_links:  # Iterate over links maintaining their original order
-                match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', link)
-                if match:
-                    language_code, article_title_encoded = match.groups()
-                    article_title = unquote(article_title_encoded)  # Decode for API calls/display
-                    original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title_encoded}"  # Use encoded title for URL
-                    if language_code != 'en':  # Process only if not already in English
-                        response = await get_english_wikipedia_url(session, original_url, article_title, language_code)
-                        if response:
-                            responses.append(response)  # Collect and append response
+        if ordered_unique_links:  # Check if there are any links to process
+            responses = []
+            async with aiohttp.ClientSession() as session:
+                for link in ordered_unique_links:  # Iterate over links maintaining their original order
+                    match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', link)
+                    if match:
+                        language_code, article_title_encoded = match.groups()
+                        article_title = unquote(article_title_encoded)  # Decode for API calls/display
+                        original_url = f"https://{language_code}.wikipedia.org/wiki/{article_title_encoded}"  # Use encoded title for URL
+                        if language_code != 'en':  # Process only if not already in English
+                            response = await get_english_wikipedia_url(session, original_url, article_title, language_code)
+                            if response:
+                                responses.append(response)  # Collect and append response
 
-        if responses:  # If there are responses to send back
-            reply_message = "\n\n".join(responses)  # Aggregate responses into a single message
-            await update.message.reply_text(reply_message, parse_mode='HTML', disable_web_page_preview=True)  # Send reply
+            if responses:  # If there are responses to send back
+                reply_message = "\n\n".join(responses)  # Aggregate responses into a single message
+                await update.message.reply_text(
+                    reply_message,
+                    parse_mode='HTML',
+                    disable_web_page_preview=True,
+                    reply_to_message_id=update.message.message_id  # Explicitly set the reply
+                )  # Send reply
+
+    except Exception as e:
+        logger.error(f"Error in check_wiki_link: {e}")
+        logger.error(traceback.format_exc())
 
 async def process_link(session, original_url):
     # Decode the URL to ensure special characters are handled properly
