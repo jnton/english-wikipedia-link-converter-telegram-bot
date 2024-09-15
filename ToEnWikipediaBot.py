@@ -281,6 +281,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         description_text,
         parse_mode='HTML',
         reply_markup=reply_markup
+        reply_to_message_id=update.message.message_id
+
     )
 
 def setup_handlers(application):
