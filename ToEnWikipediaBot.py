@@ -7,7 +7,7 @@ import aiohttp
 import json
 import asyncio
 from urllib.parse import urlparse
-from telegram import Update, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
 from uuid import uuid4
 import traceback  # Ensure this is imported if you use traceback
@@ -254,15 +254,46 @@ async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_to_message_id=update.message.message_id
     )
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    bot = context.bot
+    first_name = user.first_name
+
+    description_text = (
+        f"Hello {first_name}!\n\n"
+        "I am the <b>English Wikipedia Link Converter Bot</b>.\n\n"
+        "I convert any non-English Wikipedia link into its English equivalent.\n\n"
+        "<b>Commands:</b>\n"
+        "/source - Get the link to the bot's source code\n"
+        "/license - View the bot's license and image credits\n\n"
+        "<b>How to Use Me:</b>\n"
+        "- Simply send me any non-English Wikipedia link, and I'll reply with the English version.\n"
+        "- Add me to your group, and I'll automatically convert Wikipedia links shared by members.\n"
+        "- Use me in inline mode by typing <code>@{bot.username}</code> followed by the links to get instant conversions.\n"
+    )
+
+    # Create the inline keyboard button
+    keyboard = [[InlineKeyboardButton("Add me to your group", url=f"https://t.me/{bot.username}?startgroup=true")]]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        description_text,
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
 def setup_handlers(application):
-    """ Configure Telegram bot handlers for the application. """
+    """Configure Telegram bot handlers for the application."""
     # Define command handlers and other message handlers
+    start_handler = CommandHandler('start', start)
     check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
     inline_query_handler = InlineQueryHandler(inline_query)
     source_handler = CommandHandler('source', source)
     license_handler = CommandHandler('license', license)
 
     # Add handlers to the application
+    application.add_handler(start_handler)
     application.add_handler(check_wiki_link_handler)
     application.add_handler(inline_query_handler)
     application.add_handler(source_handler)
