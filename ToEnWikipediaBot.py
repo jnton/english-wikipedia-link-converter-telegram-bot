@@ -280,7 +280,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         description_text,
         parse_mode='HTML',
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
         reply_to_message_id=update.message.message_id
 
     )
