@@ -269,7 +269,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<b>How to Use Me:</b>\n"
         "- Simply send me any non-English Wikipedia link, and I'll reply with the English version.\n"
         "- Add me to your group, and I'll automatically convert Wikipedia links shared by members.\n"
-        "- Use me in inline mode by typing <code>@{bot.username}</code> followed by the links to get instant conversions.\n"
+        f"- Use me in inline mode by typing <code>@{bot.username}</code> followed by the links to get instant conversions.\n"
     )
 
     # Create the inline keyboard button
