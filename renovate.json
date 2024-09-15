@@ -1,0 +1,14 @@
+{
+  "extends": ["config:base"],
+  "pip_requirements": {
+    "fileMatch": ["^requirements\\.txt$"]
+  },
+  "automerge": true,
+  "automergeType": "branch",
+  "dependencyDashboard": true,
+  "schedule": ["every weekend"],
+  "labels": ["dependencies"],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
+  "commitMessagePrefix": "chore: renovate"
+}
