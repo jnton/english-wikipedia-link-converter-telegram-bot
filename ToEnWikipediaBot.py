@@ -1,4 +1,4 @@
-from telegram.utils.helpers import escape
+from telegram.helpers import escape
 import os
 import logging
 import re
