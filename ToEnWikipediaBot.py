@@ -232,24 +232,24 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
 async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     license_text = (
-        "*License*\n\n"
+        "<b>License</b>\n\n"
         "The code in this repository is licensed under the "
-        "[GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.en.html), "
+        "<a href=\"https://www.gnu.org/licenses/agpl-3.0.en.html\">GNU Affero General Public License v3.0 (AGPL-3.0)</a>, "
         "except where otherwise specified.\n\n"
-        "The icon for the *English Wikipedia Link Converter* Telegram Bot is licensed under a "
-        "[Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)](http://creativecommons.org/licenses/by-sa/4.0/). "
-        "See the [icon directory](https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot/tree/main/Telegram-Bot-Icon) for more details.\n\n"
-        "*Image Credits*\n\n"
+        "The icon for the <b>English Wikipedia Link Converter</b> Telegram Bot is licensed under a "
+        "<a href=\"http://creativecommons.org/licenses/by-sa/4.0/\">Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)</a>. "
+        "See the <a href=\"https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot/tree/main/Telegram-Bot-Icon\">icon directory</a> for more details.\n\n"
+        "<b>Image Credits</b>\n\n"
         "The bot's icon incorporates images from the following sources:\n\n"
-        "- *Wikipedia logo*, Version2 by Vanished user 24kwjf10h32h, Version 1 by Nohat (concept by Paullusmagnus); Wikimedia., "
-        "is used under a [Creative Commons Attribution-ShareAlike 3.0 Unported License (CC BY-SA 3.0)](https://creativecommons.org/licenses/by-sa/3.0/) "
-        "and can be found [here on Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Wikipedia-logo-v2-square.svg).\n\n"
-        "- *Left arrow*, by Icons8 is licensed under [CC0](https://creativecommons.org/share-your-work/public-domain/cc0/) "
-        "and is available [here on Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Left-arrow_(61413)_-_The_Noun_Project.svg)."
+        "- <b>Wikipedia logo</b>, Version2 by Vanished user 24kwjf10h32h, Version 1 by Nohat (concept by Paullusmagnus); Wikimedia., "
+        "is used under a <a href=\"https://creativecommons.org/licenses/by-sa/3.0/\">Creative Commons Attribution-ShareAlike 3.0 Unported License (CC BY-SA 3.0)</a> "
+        "and can be found <a href=\"https://commons.wikimedia.org/wiki/File:Wikipedia-logo-v2-square.svg\">here on Wikimedia Commons</a>.\n\n"
+        "- <b>Left arrow</b>, by Icons8 is licensed under <a href=\"https://creativecommons.org/share-your-work/public-domain/cc0/\">CC0</a> "
+        "and is available <a href=\"https://commons.wikimedia.org/wiki/File:Left-arrow_(61413)_-_The_Noun_Project.svg\">here on Wikimedia Commons</a>."
     )
     await update.message.reply_text(
         license_text,
-        parse_mode='MarkdownV2',
+        parse_mode='HTML',
         disable_web_page_preview=True,
         reply_to_message_id=update.message.message_id
     )
