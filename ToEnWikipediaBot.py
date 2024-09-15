@@ -229,21 +229,7 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "You can find my source code here: https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!",
         reply_to_message_id=update.message.message_id
     )
-
-def setup_handlers(application):
-    """ Configure Telegram bot handlers for the application. """
-    # Define command handlers and other message handlers
-    check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
-    inline_query_handler = InlineQueryHandler(inline_query)
-    source_handler = CommandHandler('source', source)
-    license_handler = CommandHandler('license', license)
-
-    # Add handlers to the application
-    application.add_handler(check_wiki_link_handler)
-    application.add_handler(inline_query_handler)
-    application.add_handler(source_handler)
-    application.add_handler(license_handler)
-
+    
 async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     license_text = (
         "*License*\n\n"
@@ -267,6 +253,20 @@ async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         disable_web_page_preview=True,
         reply_to_message_id=update.message.message_id
     )
+
+def setup_handlers(application):
+    """ Configure Telegram bot handlers for the application. """
+    # Define command handlers and other message handlers
+    check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
+    inline_query_handler = InlineQueryHandler(inline_query)
+    source_handler = CommandHandler('source', source)
+    license_handler = CommandHandler('license', license)
+
+    # Add handlers to the application
+    application.add_handler(check_wiki_link_handler)
+    application.add_handler(inline_query_handler)
+    application.add_handler(source_handler)
+    application.add_handler(license_handler)
     
 async def async_lambda_handler(event, context):
     """Asynchronous handler for processing Telegram updates."""
