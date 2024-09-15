@@ -6,7 +6,7 @@
   "automerge": true,
   "automergeType": "branch",
   "dependencyDashboard": true,
-  "schedule": ["daily"],
+  "schedule": ["before 4am"],
   "labels": ["dependencies"],
   "prHourlyLimit": 2,
   "prConcurrentLimit": 5,
