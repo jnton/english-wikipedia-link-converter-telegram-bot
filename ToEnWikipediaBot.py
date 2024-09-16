@@ -226,7 +226,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "You can find my source code here:\nhttps://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot\n\nFeel free to contribute or fork to create your own version!",
+        "You can find my source code here:\nhttps://github.com/jnton/english-wikipedia-link-converter-telegram-bot/\n\nFeel free to contribute or fork to create your own version!",
         reply_to_message_id=update.message.message_id
     )
     
@@ -238,7 +238,7 @@ async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "except where otherwise specified.\n\n"
         "The icon for the <b>English Wikipedia Link Converter</b> Telegram Bot is licensed under a "
         "<a href=\"http://creativecommons.org/licenses/by-sa/4.0/\">Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)</a>. "
-        "See the <a href=\"https://github.com/JnTon/English-Wikipedia-Link-Converter-Telegram-Bot/tree/main/Telegram-Bot-Icon\">icon directory</a> for more details.\n\n"
+        "See the <a href=\"https://github.com/jnton/english-wikipedia-link-converter-telegram-bot/tree/main/Telegram-Bot-Icon\">icon directory</a> for more details.\n\n"
         "<b>Image Credits</b>\n\n"
         "The bot's icon incorporates images from the following sources:\n\n"
         "- <b>Wikipedia logo</b>, Version2 by Vanished user 24kwjf10h32h, Version 1 by Nohat (concept by Paullusmagnus); Wikimedia., "
