@@ -2,11 +2,10 @@ from telegram.helpers import escape
 import os
 import logging
 import re
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 import aiohttp
 import json
 import asyncio
-from urllib.parse import urlparse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
 from uuid import uuid4
@@ -254,7 +253,7 @@ async def license(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_to_message_id=update.message.message_id
     )
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def send_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     bot = context.bot
     first_name = user.first_name
@@ -264,6 +263,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "I am the <b>English Wikipedia Link Converter Bot</b>.\n\n"
         "I convert any non-English Wikipedia link into its English equivalent.\n\n"
         "<b>Commands:</b>\n"
+        "/help - Display this help message\n"
         "/source - Get the link to the bot's source code\n"
         "/license - View the bot's license and image credits\n\n"
         "<b>How to Use Me:</b>\n"
@@ -285,10 +285,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     )
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_info(update, context)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await send_info(update, context)
+
+    # Directly access the bot's username
+    bot_username = bot.username
+
 def setup_handlers(application):
     """Configure Telegram bot handlers for the application."""
     # Define command handlers and other message handlers
     start_handler = CommandHandler('start', start)
+    help_handler = CommandHandler('help', help_command)
     check_wiki_link_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), check_wiki_link)
     inline_query_handler = InlineQueryHandler(inline_query)
     source_handler = CommandHandler('source', source)
@@ -296,6 +306,7 @@ def setup_handlers(application):
 
     # Add handlers to the application
     application.add_handler(start_handler)
+    application.add_handler(help_handler)
     application.add_handler(check_wiki_link_handler)
     application.add_handler(inline_query_handler)
     application.add_handler(source_handler)
