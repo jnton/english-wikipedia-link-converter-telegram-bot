@@ -4,7 +4,7 @@
     "fileMatch": ["^requirements\\.txt$"]
   },
   "automerge": true,
-  "automergeType": "branch",
+  "automergeType": "pr",
   "dependencyDashboard": true,
   "schedule": ["before 4am"],
   "labels": ["dependencies"],
