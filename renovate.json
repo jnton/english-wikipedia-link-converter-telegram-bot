@@ -1,14 +1,13 @@
 {
   "extends": ["config:base"],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
   "pip_requirements": {
     "fileMatch": ["^requirements\\.txt$"]
   },
   "automerge": true,
   "automergeType": "pr",
   "dependencyDashboard": true,
-  "schedule": ["before 4am"],
-  "labels": ["dependencies"],
-  "prHourlyLimit": 2,
-  "prConcurrentLimit": 5,
   "commitMessagePrefix": "chore: renovate"
 }
+
