@@ -102,8 +102,8 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
     allowed_domains = ["wikipedia.org", "wikidata.org"]
 
     def is_valid_domain(url):
-        domain = urlparse(url).netloc
-        return any(domain.endswith(allowed) for allowed in allowed_domains)
+        host = urlparse(url).netloc.lower()
+        return host.endswith('.wikipedia.org') or host.endswith('.wikidata.org')
 
     wiki_api_url = f"https://{language_code}.wikipedia.org/w/api.php"
 
@@ -148,6 +148,9 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
     return None
 
 async def process_link(session, original_url):
+    if not is_valid_domain(original_url):
+        logger.warning("Blocked non‐wiki URL: %s", original_url)
+        return None
     # Decode the URL to ensure special characters are handled properly
     decoded_url = unquote(original_url)
     match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', decoded_url)
