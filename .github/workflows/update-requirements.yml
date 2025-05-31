@@ -30,6 +30,11 @@ jobs:
           pip install safety
           safety check --full-report
 
+      - name: Audit with pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit --fail-on high
+
       - name: Commit & push lockfile
         run: |
           git config user.name "github-actions[bot]"
