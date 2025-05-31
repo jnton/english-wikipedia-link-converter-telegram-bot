@@ -7,6 +7,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -15,20 +16,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: (Re)compile requirements for 3.12
-        run: |
-          pip install pip-tools
-          pip-compile requirements.in --output-file=requirements.txt
-
       - name: Install dependencies into package/
         run: |
           mkdir -p package
           pip install -r requirements.txt -t package
 
       - name: Copy bot code into package/
-        run: |
-          cp ToEnWikipediaBot.py package/
-          # cp any other modules or subfolders you need
+        run: cp ToEnWikipediaBot.py package/
 
       - name: Zip application
         run: |
