@@ -2,29 +2,44 @@ name: Deploy Telegram Bot to AWS Lambda
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.8
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-    - name: Package Application
-      run: |
-        zip -r package.zip . -x "*.git*" "venv/*" ".env*" ".github/*"
-    - name: Deploy to AWS Lambda
-      uses: appleboy/lambda-action@v0.2.0
-      with:
-        aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws_region: ${{ secrets.AWS_REGION }}
-        function_name: ${{ secrets.LAMBDA_FUNCTION_NAME }}
-        zip_file: package.zip
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: (Re)compile requirements for 3.12
+        run: |
+          pip install pip-tools
+          pip-compile requirements.in --output-file=requirements.txt
+
+      - name: Install dependencies into package/
+        run: |
+          mkdir -p package
+          pip install -r requirements.txt -t package
+
+      - name: Copy bot code into package/
+        run: |
+          cp ToEnWikipediaBot.py package/
+          # cp any other modules or subfolders you need
+
+      - name: Zip application
+        run: |
+          cd package
+          zip -r ../package.zip .
+
+      - name: Deploy to AWS Lambda
+        uses: appleboy/lambda-action@v0.2.0
+        with:
+          aws_access_key_id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region:            ${{ secrets.AWS_REGION }}
+          function_name:         ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          zip_file:              package.zip
