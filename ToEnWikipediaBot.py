@@ -265,7 +265,8 @@ async def send_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<b>Commands:</b>\n"
         "/help - Display this help message\n"
         "/source - Get the link to the bot's source code\n"
-        "/license - View the bot's license and image credits\n\n"
+        "/license - View the bot's license and image credits\n"
+        "/privacy - View the bot's Privacy Policy\n\n"
         "<b>How to Use Me:</b>\n"
         "- Simply send me any non-English Wikipedia link, and I'll reply with the English version.\n"
         "- Add me to your group, and I'll automatically convert Wikipedia links shared by members.\n"
@@ -294,6 +295,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Directly access the bot's username
     bot_username = bot.username
 
+async def privacy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Privacy Policy:\n"
+        "https://jnton.github.io/english-wikipedia-link-converter-telegram-bot/PRIVACY_POLICY.html",
+        disable_web_page_preview=True,
+        reply_to_message_id=update.message.message_id
+    )
+
 def setup_handlers(application):
     """Configure Telegram bot handlers for the application."""
     # Define command handlers and other message handlers
@@ -303,6 +312,7 @@ def setup_handlers(application):
     inline_query_handler = InlineQueryHandler(inline_query)
     source_handler = CommandHandler('source', source)
     license_handler = CommandHandler('license', license)
+    privacy_handler = CommandHandler("privacy", privacy)
 
     # Add handlers to the application
     application.add_handler(start_handler)
@@ -311,6 +321,7 @@ def setup_handlers(application):
     application.add_handler(inline_query_handler)
     application.add_handler(source_handler)
     application.add_handler(license_handler)
+    application.add_handler(privacy_handler)
     
 async def async_lambda_handler(event, context):
     """Asynchronous handler for processing Telegram updates."""
