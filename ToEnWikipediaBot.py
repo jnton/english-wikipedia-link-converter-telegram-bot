@@ -10,30 +10,48 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQ
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
 from uuid import uuid4
 import traceback
+from collections import OrderedDict
+import time
 
 # Set logging level to WARNING for production
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Example using a simple in-memory rate limiter
-user_requests = {}
+# Global rate limiting config
+MAX_REQUESTS = 30        # max requests per window
+WINDOW_SIZE = 60         # window size in seconds
+MAX_TRACKED_USERS = 1000 # global cap on distinct users
+
+# Replace simple dict with OrderedDict for LRU eviction
+user_requests = OrderedDict()
 
 async def check_rate_limit(user_id):
-    from time import time
+    """
+    Enforce a sliding-window rate limit per user and a global cap on tracked users.
+    Returns True if under limit, False if exceeded.
+    """
+    current_time = time.time()
 
-    current_time = time()
-    window = 60  # 60-second window
-    max_requests = 30
+    # If new user and we're at capacity, evict the oldest entry
+    if user_id not in user_requests:
+        if len(user_requests) >= MAX_TRACKED_USERS:
+            user_requests.popitem(last=False)  # remove oldest
+        user_requests[user_id] = []
+    else:
+        # Mark this user as recently used
+        user_requests.move_to_end(user_id)
 
-    request_times = user_requests.get(user_id, [])
-    # Remove outdated requests
-    request_times = [t for t in request_times if t > current_time - window]
-    request_times.append(current_time)
-    user_requests[user_id] = request_times
+    timestamps = user_requests[user_id]
+    # Remove timestamps outside the WINDOW_SIZE
+    cutoff = current_time - WINDOW_SIZE
+    timestamps = [t for t in timestamps if t > cutoff]
 
-    if len(request_times) > max_requests:
-        return False  # Rate limit exceeded
-    return True
+    # Record this request
+    timestamps.append(current_time)
+    user_requests[user_id] = timestamps
+
+    # Allow only up to MAX_REQUESTS in the window
+    return len(timestamps) <= MAX_REQUESTS
 
 async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
