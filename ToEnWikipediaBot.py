@@ -9,7 +9,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, MessageEntity
 from telegram.ext import Application, MessageHandler, filters, CommandHandler, ContextTypes, InlineQueryHandler
 from uuid import uuid4
-import traceback  # Ensure this is imported if you use traceback
+import traceback
 
 # Set logging level to WARNING for production
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -93,9 +93,9 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )  # Send reply
 
     except Exception:
-        logger.error("An error occurred in check_wiki_link.")
-        # Optionally, log traceback during development but remove in production
-        # logger.debug(traceback.format_exc())
+        # ERROR level includes traceback without using DEBUG
+        logger.exception("An error occurred in check_wiki_link.")
+        return
 
 async def get_english_wikipedia_url(session, original_url, article_title, language_code):
     # Only allow requests to Wikipedia and Wikidata domains
@@ -292,9 +292,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await send_info(update, context)
 
-    # Directly access the bot's username
-    bot_username = bot.username
-
 async def privacy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Privacy Policy:\n"
@@ -342,7 +339,7 @@ async def async_lambda_handler(event, context):
             await application.shutdown()
             return {'statusCode': 200, 'body': json.dumps({'message': 'Success'})}
         except Exception:
-            logger.error("An error occurred while processing the update.")
+            logger.exception("An error occurred while processing the update.")
             return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
     else:
         logger.error("No update payload found.")
