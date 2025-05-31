@@ -2,8 +2,8 @@ name: Update Python dependencies
 
 on:
   schedule:
-    - cron:  '0 0 * * 0'      # every Sunday UTC
-  workflow_dispatch:         # manual trigger
+    - cron:  '0 0 * * 0'
+  workflow_dispatch:
 
 jobs:
   bump:
@@ -24,6 +24,11 @@ jobs:
 
       - name: Recompile requirements.txt
         run: pip-compile requirements.in --output-file=requirements.txt
+
+      - name: Security scan dependencies
+        run: |
+          pip install safety
+          safety check --full-report
 
       - name: Commit & push lockfile
         run: |
