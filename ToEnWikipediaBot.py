@@ -1,8 +1,8 @@
 from telegram.helpers import escape
+from urllib.parse import unquote, urlparse
 import os
 import logging
 import re
-from urllib.parse import unquote, urlparse
 import aiohttp
 import json
 import asyncio
@@ -24,6 +24,13 @@ MAX_TRACKED_USERS = 1000 # global cap on distinct users
 
 # Replace simple dict with OrderedDict for LRU eviction
 user_requests = OrderedDict()
+
+def is_valid_domain(url: str) -> bool:
+    """
+    Return True if url’s host ends with wikipedia.org or wikidata.org.
+    """
+    host = urlparse(url).netloc.lower()
+    return host.endswith('.wikipedia.org') or host.endswith('.wikidata.org')
 
 async def check_rate_limit(user_id):
     """
@@ -116,13 +123,6 @@ async def check_wiki_link(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
 async def get_english_wikipedia_url(session, original_url, article_title, language_code):
-    # Only allow requests to Wikipedia and Wikidata domains
-    allowed_domains = ["wikipedia.org", "wikidata.org"]
-
-    def is_valid_domain(url):
-        host = urlparse(url).netloc.lower()
-        return host.endswith('.wikipedia.org') or host.endswith('.wikidata.org')
-
     wiki_api_url = f"https://{language_code}.wikipedia.org/w/api.php"
 
     if not is_valid_domain(wiki_api_url):
@@ -166,9 +166,11 @@ async def get_english_wikipedia_url(session, original_url, article_title, langua
     return None
 
 async def process_link(session, original_url):
+    # now this will correctly resolve to the global helper
     if not is_valid_domain(original_url):
         logger.warning("Blocked non‐wiki URL: %s", original_url)
         return None
+
     # Decode the URL to ensure special characters are handled properly
     decoded_url = unquote(original_url)
     match = re.search(r'https?://([a-z]{2,3})?\.?m?\.?wikipedia\.org/wiki/(.+)', decoded_url)
