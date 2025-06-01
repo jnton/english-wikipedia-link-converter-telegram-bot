@@ -215,11 +215,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 preview_title = "English Wikipedia Link Found"
                 preview_desc = single_url
             else:
-                # multiple links: show count and a short snippet
+                # multiple links: show count and a normal placeholder description
                 preview_title = f"{len(unique_links)} English Wikipedia Links Found"
-                flat = aggregated_response.replace("\n", " • ")
-                preview_desc = (flat[:60] + "...") if len(flat) > 60 else flat
-
+                # avoid raw HTML in the description
+                preview_desc = "Click to view converted links"
             results = [
                 InlineQueryResultArticle(
                     id=str(uuid4()),
