@@ -212,11 +212,11 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             if len(unique_links) == 1:
                 # extract the final URL line from the HTML snippet
                 single_url = aggregated_response.splitlines()[-1]
-                preview_title = "English Wikipedia Link"
+                preview_title = "English Wikipedia Link Found"
                 preview_desc = single_url
             else:
                 # multiple links: show count and a short snippet
-                preview_title = f"{len(unique_links)} English Wikipedia Links"
+                preview_title = f"{len(unique_links)} English Wikipedia Links Found"
                 flat = aggregated_response.replace("\n", " • ")
                 preview_desc = (flat[:60] + "...") if len(flat) > 60 else flat
 
