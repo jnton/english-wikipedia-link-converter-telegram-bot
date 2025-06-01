@@ -208,43 +208,57 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         aggregated_response = ''.join([resp for resp in responses if resp]).strip()
 
         if aggregated_response:
-            results = [InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="Wikipedia Links",
-                input_message_content=InputTextMessageContent(aggregated_response, parse_mode='HTML', disable_web_page_preview=True),
-                description="Aggregated English Wikipedia Links"
-            )]
-        else:
-            results = [InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="No Valid Links",
-                input_message_content=InputTextMessageContent("No valid non-English Wikipedia page URL found."),
-                description="No valid links processed"
-            )]
-    else:
-        results = [InlineQueryResultArticle(
-            id=str(uuid4()),
-            title="No Non-English Links",
-            input_message_content=InputTextMessageContent("Please enter non-English Wikipedia page URL(s)."),
-            description="Only non-English Wikipedia links are processed"
-        )]
+            # If only one link, show its title and URL directly in the preview
+            if len(unique_links) == 1:
+                # extract the final URL line from the HTML snippet
+                single_url = aggregated_response.splitlines()[-1]
+                preview_title = "English Wikipedia Link"
+                preview_desc = single_url
+            else:
+                # multiple links: show count and a short snippet
+                preview_title = f"{len(unique_links)} English Wikipedia Links"
+                flat = aggregated_response.replace("\n", " • ")
+                preview_desc = (flat[:60] + "...") if len(flat) > 60 else flat
 
-    # Only process non-empty queries
-    if query:
-        async with aiohttp.ClientSession() as session:
-            article_title = query
-            original_url = f"https://en.wikipedia.org/wiki/{article_title.replace(' ', '_')}"
-            response = await get_english_wikipedia_url(session, original_url, article_title, 'en')
-            if response:
-                results.append(
-                    InlineQueryResultArticle(
-                        id=str(uuid4()),
-                        title=article_title,
-                        input_message_content=InputTextMessageContent(response),
-                        description="Click to send this Wikipedia link"
+            results = [
+                InlineQueryResultArticle(
+                    id=str(uuid4()),
+                    title=preview_title,
+                    description=preview_desc,
+                    input_message_content=InputTextMessageContent(
+                        aggregated_response,
+                        parse_mode='HTML',
+                        disable_web_page_preview=True
                     )
                 )
-        await update.inline_query.answer(results, cache_time=10)
+            ]
+        else:
+            # no valid conversions
+            results = [
+                InlineQueryResultArticle(
+                    id=str(uuid4()),
+                    title="No Valid Non-English Links",
+                    description="I couldn’t find any English equivalents.",
+                    input_message_content=InputTextMessageContent(
+                        "No valid non-English Wikipedia page URL found."
+                    )
+                )
+            ]
+    else:
+        # no non-English links at all
+        results = [
+            InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="No Wikipedia Links",
+                description="Type or paste a non-English Wikipedia URL.",
+                input_message_content=InputTextMessageContent(
+                    "Please enter non-English Wikipedia page URL(s)."
+                )
+            )
+        ]
+
+    # Always answer with your improved placeholders
+    await update.inline_query.answer(results, cache_time=10)
 
 async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
