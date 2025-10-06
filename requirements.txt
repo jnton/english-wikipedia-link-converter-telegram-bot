@@ -10,7 +10,7 @@ aiosignal==1.4.0
     # via aiohttp
 anyio==4.11.0
     # via httpx
-attrs==25.3.0
+attrs==25.4.0
     # via aiohttp
 certifi==2025.10.5
     # via
