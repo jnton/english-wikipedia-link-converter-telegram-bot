@@ -31,7 +31,7 @@ idna==3.11
     #   anyio
     #   httpx
     #   yarl
-multidict==6.7.0
+multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
