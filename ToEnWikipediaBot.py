@@ -243,8 +243,7 @@ def claim_update(update_id: int) -> bool:
     except Exception as error:
         if _conditional_failed(error):
             return False
-        logger.exception("DynamoDB idempotency claim failed.")
-        raise TemporaryStateError("Could not claim Telegram update") from error
+        raise TemporaryStateError("DynamoDB idempotency claim failed") from error
 
 
 def complete_update(update_id: int) -> None:
@@ -267,8 +266,8 @@ def complete_update(update_id: int) -> None:
                 ":expires": _ddb_number(now + IDEMPOTENCY_TTL_SECONDS),
             },
         )
-    except Exception:
-        logger.exception("Could not mark Telegram update complete.")
+    except Exception as error:
+        raise TemporaryStateError("Could not mark Telegram update complete") from error
 
 
 def fail_update(update_id: int, error: Exception) -> None:
@@ -305,7 +304,7 @@ def _increment_counter(key: str, ttl: int) -> int | None:
         response = _aws_client("dynamodb").update_item(
             TableName=table_name,
             Key={"pk": _ddb_string(key)},
-            UpdateExpression="SET expires_at = :expires ADD request_count :one",
+            UpdateExpression="ADD request_count :one SET expires_at = :expires",
             ExpressionAttributeValues={
                 ":one": _ddb_number(1),
                 ":expires": _ddb_number(ttl),
@@ -314,11 +313,10 @@ def _increment_counter(key: str, ttl: int) -> int | None:
         )
         return int(response["Attributes"]["request_count"]["N"])
     except Exception as error:
-        logger.exception("DynamoDB counter update failed.")
         raise TemporaryStateError("DynamoDB counter update failed") from error
 
 
-def _allow_rate(
+def _allow_scoped_action(
     prefix: str,
     user_id: int | None,
     chat_id: int | None,
@@ -332,15 +330,9 @@ def _allow_rate(
     user_count = None
     chat_count = None
     if user_id is not None:
-        user_count = _increment_counter(
-            f"rate#{prefix}#user#{user_id}#{window}",
-            ttl,
-        )
+        user_count = _increment_counter(f"rate#{prefix}#user#{user_id}#{window}", ttl)
     if chat_id is not None:
-        chat_count = _increment_counter(
-            f"rate#{prefix}#chat#{chat_id}#{window}",
-            ttl,
-        )
+        chat_count = _increment_counter(f"rate#{prefix}#chat#{chat_id}#{window}", ttl)
 
     return not (
         (user_count is not None and user_count > user_limit)
@@ -349,7 +341,7 @@ def _allow_rate(
 
 
 def allow_conversion(user_id: int | None, chat_id: int | None) -> bool:
-    return _allow_rate(
+    return _allow_scoped_action(
         "conversion",
         user_id,
         chat_id,
@@ -359,7 +351,7 @@ def allow_conversion(user_id: int | None, chat_id: int | None) -> bool:
 
 
 def allow_command(user_id: int | None, chat_id: int | None) -> bool:
-    return _allow_rate(
+    return _allow_scoped_action(
         "command",
         user_id,
         chat_id,
@@ -368,51 +360,24 @@ def allow_command(user_id: int | None, chat_id: int | None) -> bool:
     )
 
 
-def _notice_key(
-    chat_id: int,
-    notice_type: str,
-    window_seconds: int,
-) -> tuple[str, int]:
+def allow_inline(user_id: int | None) -> bool:
+    return _allow_scoped_action(
+        "inline",
+        user_id,
+        None,
+        COMMAND_USER_RATE_LIMIT,
+        COMMAND_CHAT_RATE_LIMIT,
+    )
+
+
+def reserve_notice(chat_id: int, notice_type: str, limit: int = 1) -> tuple[bool, int]:
     now = int(time.time())
-    bucket = now // window_seconds
-    ttl = (bucket + 2) * window_seconds
-    return f"notice#{notice_type}#{chat_id}#{bucket}", ttl
-
-
-def reserve_notice(
-    chat_id: int,
-    notice_type: str,
-    limit: int = 1,
-    window_seconds: int = RECOVERY_WINDOW_SECONDS,
-) -> tuple[bool, int]:
-    key, ttl = _notice_key(chat_id, notice_type, window_seconds)
-    count = _increment_counter(key, ttl)
+    bucket = now // RECOVERY_WINDOW_SECONDS
+    ttl = (bucket + 2) * RECOVERY_WINDOW_SECONDS
+    count = _increment_counter(f"notice#{notice_type}#{chat_id}#{bucket}", ttl)
+    if count is None:
+        return True, 1
     return count <= limit, count
-
-
-def release_notice(
-    chat_id: int,
-    notice_type: str,
-    window_seconds: int = RECOVERY_WINDOW_SECONDS,
-) -> None:
-    table_name = _state_table_name()
-    if not table_name:
-        return
-    key, _ = _notice_key(chat_id, notice_type, window_seconds)
-    try:
-        _aws_client("dynamodb").update_item(
-            TableName=table_name,
-            Key={"pk": _ddb_string(key)},
-            UpdateExpression="ADD request_count :minus_one",
-            ConditionExpression="request_count > :zero",
-            ExpressionAttributeValues={
-                ":minus_one": _ddb_number(-1),
-                ":zero": _ddb_number(0),
-            },
-        )
-    except Exception as error:
-        if not _conditional_failed(error):
-            logger.exception("Could not release a notice reservation.")
 
 
 def _effective_actor_id(update: Update) -> int | None:
@@ -533,25 +498,15 @@ async def _reply_message_safely(message, text: str, **kwargs):
             **kwargs,
         )
     except BadRequest as error:
-        message_text = str(error).lower()
-        reply_not_found = (
-            "message to be replied not found",
-            "reply message not found",
-            "message_id_invalid",
-        )
-        if not any(fragment in message_text for fragment in reply_not_found):
+        lowered = str(error).lower()
+        if "reply" not in lowered and "message" not in lowered:
             raise
         return await message.reply_text(text, **kwargs)
 
 
 async def _send_rate_limit_warning(message, chat_id: int | None) -> None:
     if chat_id is not None:
-        allowed, _ = reserve_notice(
-            chat_id,
-            "rate-limit",
-            1,
-            RATE_WARNING_WINDOW_SECONDS,
-        )
+        allowed, _ = reserve_notice(chat_id, "rate-limit", 1)
         if not allowed:
             return
     await _reply_message_safely(
@@ -600,19 +555,9 @@ async def inline_query(
     if inline is None:
         return
 
-    user_id = getattr(update.effective_user, "id", None)
-    if not allow_conversion(user_id, None):
-        results = [
-            InlineQueryResultArticle(
-                id=str(uuid4()),
-                title="Rate Limit Reached",
-                description="Wait about a minute and try again.",
-                input_message_content=InputTextMessageContent(
-                    "Too many conversion requests. Please wait about a minute."
-                ),
-            )
-        ]
-        await inline.answer(results, cache_time=5)
+    user_id = getattr(inline.from_user, "id", None)
+    if not allow_inline(user_id):
+        await inline.answer([], cache_time=5)
         return
 
     links = extract_wikipedia_links(extract_urls_from_text(inline.query))
@@ -668,22 +613,18 @@ async def inline_query(
     await inline.answer(results, cache_time=10)
 
 
-def _command_allowed(update: Update) -> bool:
-    user_id = getattr(update.effective_user, "id", None)
-    chat_id = getattr(update.effective_chat, "id", None)
-    return allow_command(user_id, chat_id)
-
-
 async def _reply(update: Update, text: str, **kwargs) -> None:
     message = update.effective_message
     if message is None:
+        return
+    user_id = getattr(update.effective_user, "id", None)
+    chat_id = getattr(update.effective_chat, "id", None)
+    if not allow_command(user_id, chat_id):
         return
     await _reply_message_safely(message, text, **kwargs)
 
 
 async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     await _reply(
         update,
         "You can find my source code here:\n"
@@ -693,8 +634,6 @@ async def source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def license_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     license_text = (
         "<b>License</b>\n\n"
         "The code in this repository is licensed under the "
@@ -749,8 +688,6 @@ def _read_monitor_state() -> dict[str, str]:
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     state = await asyncio.to_thread(_read_monitor_state)
     status = state.get("status", "unknown")
     checked_at = int(state.get("checked_at", "0") or 0)
@@ -831,30 +768,20 @@ async def send_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     await send_info(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     await send_info(update, context)
 
 
 async def privacy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _command_allowed(update):
-        return
     await _reply(
         update,
         "Privacy Policy:\n"
         "https://jnton.github.io/english-wikipedia-link-converter-telegram-bot/PRIVACY_POLICY.html",
         disable_web_page_preview=True,
     )
-
-
-async def capture_processing_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.application.bot_data["processing_error"] = context.error
 
 
 def setup_handlers(application: Application) -> None:
@@ -868,7 +795,6 @@ def setup_handlers(application: Application) -> None:
         MessageHandler(filters.TEXT & ~filters.COMMAND, check_wiki_link)
     )
     application.add_handler(InlineQueryHandler(inline_query))
-    application.add_error_handler(capture_processing_error)
 
 
 def _json_response(status_code: int, payload: dict) -> dict:
@@ -962,18 +888,17 @@ def _is_command_update(update_data: dict) -> bool:
 
 
 def update_might_contain_wikipedia_link(update_data: dict) -> bool:
+    """Return True only for structurally valid non-English Wikipedia URLs."""
     message = _message_payload(update_data)
     if not message:
         return False
-    text = message.get("text") or ""
-    if "wikipedia.org" in text.lower():
-        return True
+
+    candidates = extract_urls_from_text(message.get("text"))
     for entity in message.get("entities") or []:
-        if entity.get("type") == "text_link":
-            url = entity.get("url") or ""
-            if "wikipedia.org" in url.lower():
-                return True
-    return False
+        if entity.get("type") == "text_link" and entity.get("url"):
+            candidates.append(str(entity["url"]))
+
+    return bool(extract_wikipedia_links(candidates))
 
 
 def classify_update(update_data: dict) -> str:
@@ -1010,9 +935,6 @@ async def _process_update_data(update_data: dict, delayed: bool = False) -> None
         await application.initialize()
         initialized = True
         await application.process_update(update)
-        processing_error = application.bot_data.get("processing_error")
-        if isinstance(processing_error, BaseException):
-            raise processing_error
     finally:
         if initialized:
             await application.shutdown()
@@ -1086,17 +1008,6 @@ async def _handle_stale_update(update_data: dict, policy: str) -> None:
             )
 
 
-def _is_permanent_telegram_bad_request(error: BadRequest) -> bool:
-    message = str(error).lower()
-    permanent_fragments = (
-        "chat not found",
-        "user is deactivated",
-        "message thread not found",
-        "group chat was upgraded",
-    )
-    return any(fragment in message for fragment in permanent_fragments)
-
-
 async def _process_sqs_record(record: dict) -> None:
     body = record.get("body")
     if not isinstance(body, str):
@@ -1109,8 +1020,6 @@ async def _process_sqs_record(record: dict) -> None:
     if not claim_update(update_id):
         return
 
-    delayed_chat_id: int | None = None
-    delayed_reserved = False
     try:
         policy, delayed = _stale_policy(update_data)
         if policy.startswith("skip"):
@@ -1120,39 +1029,23 @@ async def _process_sqs_record(record: dict) -> None:
 
         if delayed:
             message = _message_payload(update_data) or {}
-            candidate_chat_id = (message.get("chat") or {}).get("id")
-            if isinstance(candidate_chat_id, int):
-                delayed_chat_id = candidate_chat_id
+            chat_id = (message.get("chat") or {}).get("id")
+            if isinstance(chat_id, int):
                 allowed, _ = reserve_notice(
-                    delayed_chat_id,
+                    chat_id,
                     "private-delayed-conversion",
                     RECOVERY_PRIVATE_LIMIT,
                 )
                 if not allowed:
                     complete_update(update_id)
                     return
-                delayed_reserved = True
 
         await _process_update_data(update_data, delayed=delayed)
         complete_update(update_id)
-    except Forbidden as error:
-        logger.warning(
-            "Telegram update became permanently undeliverable: %s",
-            type(error).__name__,
-        )
+    except (Forbidden, BadRequest) as error:
+        logger.warning("Telegram update became permanently undeliverable: %s", type(error).__name__)
         complete_update(update_id)
-    except BadRequest as error:
-        if _is_permanent_telegram_bad_request(error):
-            logger.warning("Telegram update became permanently undeliverable: %s", error)
-            complete_update(update_id)
-            return
-        if delayed_reserved and delayed_chat_id is not None:
-            release_notice(delayed_chat_id, "private-delayed-conversion")
-        fail_update(update_id, error)
-        raise
     except Exception as error:
-        if delayed_reserved and delayed_chat_id is not None:
-            release_notice(delayed_chat_id, "private-delayed-conversion")
         fail_update(update_id, error)
         raise
 
