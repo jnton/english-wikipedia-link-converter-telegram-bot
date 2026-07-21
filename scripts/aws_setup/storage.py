@@ -68,9 +68,28 @@ def ensure_table(dynamodb, region: str, account_id: str) -> str:
             TableName=STATE_TABLE,
             AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}],
-            ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 10},
             SSESpecification={"Enabled": True},
             Tags=[{"Key": "Application", "Value": APPLICATION}],
+        )
+        dynamodb.get_waiter("table_exists").wait(TableName=STATE_TABLE)
+
+    description = dynamodb.describe_table(TableName=STATE_TABLE)["Table"]
+    throughput = description.get("ProvisionedThroughput", {})
+    if (
+        description.get("BillingModeSummary", {}).get("BillingMode", "PROVISIONED")
+        == "PROVISIONED"
+        and (
+            int(throughput.get("ReadCapacityUnits", 0)) < 10
+            or int(throughput.get("WriteCapacityUnits", 0)) < 10
+        )
+    ):
+        dynamodb.update_table(
+            TableName=STATE_TABLE,
+            ProvisionedThroughput={
+                "ReadCapacityUnits": 10,
+                "WriteCapacityUnits": 10,
+            },
         )
         dynamodb.get_waiter("table_exists").wait(TableName=STATE_TABLE)
 
