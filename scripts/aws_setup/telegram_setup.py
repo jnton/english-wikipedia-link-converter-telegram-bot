@@ -8,7 +8,7 @@ def configure_webhook(token: str, function_url: str, secret_token: str) -> dict:
         {
             "url": function_url,
             "secret_token": secret_token,
-            "max_connections": 5,
+            "max_connections": 3,
             "allowed_updates": ["message", "channel_post", "inline_query"],
             "drop_pending_updates": False,
         },
