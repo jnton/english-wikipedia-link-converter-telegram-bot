@@ -4,7 +4,7 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
-from aws_setup.common import APPLICATION, MONITOR_FUNCTION
+from aws_setup.common import APPLICATION, MONITOR_FUNCTION, WORKER_FUNCTION
 
 
 def ensure_function_url(lambda_client, function_name: str) -> str:
@@ -98,9 +98,63 @@ def update_main_function(
     lambda_client.get_waiter("function_updated_v2").wait(FunctionName=function_name)
     lambda_client.put_function_concurrency(
         FunctionName=function_name,
-        ReservedConcurrentExecutions=4,
+        ReservedConcurrentExecutions=3,
     )
     return lambda_client.get_function_configuration(FunctionName=function_name)
+
+
+def ensure_worker_function(
+    lambda_client,
+    bot_zip: Path,
+    role_arn: str,
+    environment: dict[str, str],
+) -> str:
+    code = bot_zip.read_bytes()
+    try:
+        current = lambda_client.get_function_configuration(FunctionName=WORKER_FUNCTION)
+        lambda_client.update_function_code(
+            FunctionName=WORKER_FUNCTION,
+            ZipFile=code,
+            Publish=False,
+        )
+        lambda_client.get_waiter("function_updated_v2").wait(FunctionName=WORKER_FUNCTION)
+        merged = dict(current.get("Environment", {}).get("Variables", {}))
+        merged.update({key: value for key, value in environment.items() if value != ""})
+        lambda_client.update_function_configuration(
+            FunctionName=WORKER_FUNCTION,
+            Runtime="python3.13",
+            Handler="ToEnWikipediaBot.lambda_handler",
+            Role=role_arn,
+            MemorySize=256,
+            Timeout=15,
+            Environment={"Variables": merged},
+        )
+    except ClientError as error:
+        if error.response["Error"]["Code"] != "ResourceNotFoundException":
+            raise
+        lambda_client.create_function(
+            FunctionName=WORKER_FUNCTION,
+            Runtime="python3.13",
+            Role=role_arn,
+            Handler="ToEnWikipediaBot.lambda_handler",
+            Code={"ZipFile": code},
+            Description="SQS worker for durable ToEnWikipediaBot conversions",
+            Timeout=15,
+            MemorySize=256,
+            Publish=False,
+            Environment={"Variables": environment},
+            Tags={"Application": APPLICATION},
+            Architectures=["x86_64"],
+        )
+
+    lambda_client.get_waiter("function_updated_v2").wait(FunctionName=WORKER_FUNCTION)
+    lambda_client.put_function_concurrency(
+        FunctionName=WORKER_FUNCTION,
+        ReservedConcurrentExecutions=2,
+    )
+    return lambda_client.get_function_configuration(FunctionName=WORKER_FUNCTION)[
+        "FunctionArn"
+    ]
 
 
 def ensure_monitor_function(
@@ -115,7 +169,7 @@ def ensure_monitor_function(
         lambda_client.update_function_code(
             FunctionName=MONITOR_FUNCTION,
             ZipFile=code,
-            Publish=True,
+            Publish=False,
         )
         lambda_client.get_waiter("function_updated_v2").wait(FunctionName=MONITOR_FUNCTION)
         merged = dict(current.get("Environment", {}).get("Variables", {}))
@@ -143,7 +197,7 @@ def ensure_monitor_function(
                     Description="Independent free-tier health monitor for ToEnWikipediaBot",
                     Timeout=15,
                     MemorySize=128,
-                    Publish=True,
+                    Publish=False,
                     Environment={"Variables": environment},
                     Tags={"Application": APPLICATION},
                     Architectures=["x86_64"],
@@ -167,20 +221,35 @@ def ensure_monitor_function(
     ]
 
 
-def ensure_event_source(lambda_client, function_name: str, queue_arn: str) -> None:
+def ensure_event_source(lambda_client, worker_arn: str, queue_arn: str) -> None:
     mappings = lambda_client.list_event_source_mappings(
-        FunctionName=function_name,
+        FunctionName=worker_arn,
         EventSourceArn=queue_arn,
     ).get("EventSourceMappings", [])
     common = {
-        "FunctionName": function_name,
+        "FunctionName": worker_arn,
         "BatchSize": 1,
         "MaximumBatchingWindowInSeconds": 0,
         "FunctionResponseTypes": ["ReportBatchItemFailures"],
-        "ScalingConfig": {"MaximumConcurrency": 2},
         "Enabled": True,
     }
-    if mappings:
-        lambda_client.update_event_source_mapping(UUID=mappings[0]["UUID"], **common)
-    else:
-        lambda_client.create_event_source_mapping(EventSourceArn=queue_arn, **common)
+    for attempt in range(6):
+        try:
+            if mappings:
+                lambda_client.update_event_source_mapping(
+                    UUID=mappings[0]["UUID"],
+                    **common,
+                )
+            else:
+                lambda_client.create_event_source_mapping(
+                    EventSourceArn=queue_arn,
+                    **common,
+                )
+            return
+        except ClientError as error:
+            if (
+                error.response["Error"]["Code"] != "InvalidParameterValueException"
+                or attempt == 5
+            ):
+                raise
+            time.sleep(5)
