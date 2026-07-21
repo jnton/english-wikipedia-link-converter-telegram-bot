@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logging.basicConfig(
@@ -30,12 +31,12 @@ def _client(service_name: str):
     return client
 
 
-def _token() -> str | None:
-    return (
-        os.getenv("STATUS_BOT_TOKEN")
-        or os.getenv("TELEGRAM_BOT_TOKEN")
-        or os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
-    )
+def _main_token() -> str | None:
+    return os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("YOUR_TELEGRAM_BOT_TOKEN")
+
+
+def _notification_token() -> str | None:
+    return os.getenv("STATUS_BOT_TOKEN") or _main_token()
 
 
 def _http_json(url: str, payload: dict | None = None) -> dict:
@@ -51,11 +52,19 @@ def _http_json(url: str, payload: dict | None = None) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _telegram(method: str, payload: dict | None = None) -> dict:
-    token = _token()
-    if not token:
+def _telegram(
+    method: str,
+    payload: dict | None = None,
+    *,
+    token: str | None = None,
+) -> dict:
+    selected_token = token or _main_token()
+    if not selected_token:
         raise RuntimeError("Telegram token is missing")
-    data = _http_json(f"https://api.telegram.org/bot{token}/{method}", payload)
+    data = _http_json(
+        f"https://api.telegram.org/bot{selected_token}/{method}",
+        payload,
+    )
     if not data.get("ok"):
         raise RuntimeError(str(data.get("description", "Telegram API failure")))
     result = data.get("result")
@@ -70,13 +79,27 @@ def _queue_attributes(queue_url: str | None) -> dict[str, int]:
         AttributeNames=[
             "ApproximateNumberOfMessages",
             "ApproximateNumberOfMessagesNotVisible",
-            "ApproximateAgeOfOldestMessage",
         ],
     ).get("Attributes", {})
+
+    queue_name = queue_url.rstrip("/").rsplit("/", 1)[-1]
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(minutes=20)
+    metric = _client("cloudwatch").get_metric_statistics(
+        Namespace="AWS/SQS",
+        MetricName="ApproximateAgeOfOldestMessage",
+        Dimensions=[{"Name": "QueueName", "Value": queue_name}],
+        StartTime=start_time,
+        EndTime=end_time,
+        Period=300,
+        Statistics=["Maximum"],
+    )
+    datapoints = metric.get("Datapoints", [])
+    age = int(max((point.get("Maximum", 0) for point in datapoints), default=0))
     return {
         "visible": int(attributes.get("ApproximateNumberOfMessages", "0")),
         "in_flight": int(attributes.get("ApproximateNumberOfMessagesNotVisible", "0")),
-        "age": int(attributes.get("ApproximateAgeOfOldestMessage", "0")),
+        "age": age,
     }
 
 
@@ -111,7 +134,11 @@ def collect_health() -> dict[str, Any]:
     last_error_message = str(webhook_info.get("last_error_message", ""))[:300]
     if pending_updates >= PENDING_UPDATE_THRESHOLD:
         reasons.append(f"Telegram has {pending_updates} pending updates")
-    if last_error_date and now - last_error_date <= RECENT_WEBHOOK_ERROR_SECONDS:
+    if (
+        last_error_date
+        and now - last_error_date <= RECENT_WEBHOOK_ERROR_SECONDS
+        and (pending_updates > 0 or not endpoint_ok or not webhook_ok)
+    ):
         reasons.append(f"Recent Telegram webhook error: {last_error_message or 'unknown'}")
 
     try:
@@ -205,6 +232,7 @@ def _send_telegram(chat_id: str, text: str) -> None:
                 "text": text,
                 "disable_web_page_preview": True,
             },
+            token=_notification_token(),
         )
     except Exception:
         logger.exception("Could not send Telegram status notification.")
