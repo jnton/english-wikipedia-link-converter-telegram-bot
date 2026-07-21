@@ -1,4 +1,6 @@
+import struct
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -9,7 +11,9 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import bootstrap_oidc
-from aws_setup import monitoring, storage, telegram_setup
+import bootstrap_oidc_v2
+import verify_lambda_package
+from aws_setup import lambda_resources, monitoring, storage, telegram_setup
 
 
 class DeploymentPolicyTests(unittest.TestCase):
@@ -20,11 +24,11 @@ class DeploymentPolicyTests(unittest.TestCase):
             "arn:aws:iam::123456789012:role/existing-runtime-role",
         )
         statements = {statement["Sid"]: statement for statement in policy["Statement"]}
-        lambda_resources = statements["LambdaDeployment"]["Resource"]
+        lambda_resources_list = statements["LambdaDeployment"]["Resource"]
         self.assertTrue(
             any(
                 resource.endswith(":function:ToEnWikipediaBotWorker")
-                for resource in lambda_resources
+                for resource in lambda_resources_list
             )
         )
         self.assertIn(
@@ -39,6 +43,64 @@ class DeploymentPolicyTests(unittest.TestCase):
             "budgets:DescribeBudgets",
             statements["BudgetMonitoring"]["Action"],
         )
+
+    def test_oidc_v2_uses_exact_main_branch_subject(self):
+        policy = bootstrap_oidc_v2.trust_policy(
+            "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+        )
+        equals = policy["Statement"][0]["Condition"]["StringEquals"]
+        self.assertEqual(
+            equals["token.actions.githubusercontent.com:sub"],
+            "repo:jnton/english-wikipedia-link-converter-telegram-bot:ref:refs/heads/main",
+        )
+
+
+class ArchitectureTests(unittest.TestCase):
+    def test_existing_lambda_is_migrated_to_arm64(self):
+        lambda_client = Mock()
+        lambda_client.get_function_configuration.side_effect = [
+            {"Architectures": ["x86_64"]},
+            {"Architectures": ["arm64"]},
+        ]
+        waiter = Mock()
+        lambda_client.get_waiter.return_value = waiter
+
+        result = lambda_resources._ensure_function_architecture(
+            lambda_client,
+            "ToEnWikipediaBot",
+        )
+
+        lambda_client.update_function_configuration.assert_called_once_with(
+            FunctionName="ToEnWikipediaBot",
+            Architectures=["arm64"],
+        )
+        waiter.wait.assert_called_once_with(FunctionName="ToEnWikipediaBot")
+        self.assertEqual(result["Architectures"], ["arm64"])
+
+    def test_arm64_elf_package_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shared_object = Path(directory) / "extension.so"
+            header = bytearray(20)
+            header[:4] = b"\x7fELF"
+            header[5] = 1
+            struct.pack_into("<H", header, 18, 183)
+            shared_object.write_bytes(header)
+
+            files = verify_lambda_package.verify_package(Path(directory), "arm64")
+
+        self.assertEqual([path.name for path in files], ["extension.so"])
+
+    def test_x86_elf_is_rejected_from_arm64_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shared_object = Path(directory) / "extension.so"
+            header = bytearray(20)
+            header[:4] = b"\x7fELF"
+            header[5] = 1
+            struct.pack_into("<H", header, 18, 62)
+            shared_object.write_bytes(header)
+
+            with self.assertRaisesRegex(RuntimeError, "expected arm64"):
+                verify_lambda_package.verify_package(Path(directory), "arm64")
 
 
 class TelegramProvisioningTests(unittest.TestCase):
