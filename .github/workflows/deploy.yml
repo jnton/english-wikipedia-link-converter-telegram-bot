@@ -12,6 +12,8 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.13"
+  LAMBDA_ARCHITECTURE: arm64
+  PIP_LAMBDA_PLATFORM: manylinux2014_aarch64
   AWS_DEPLOY_ROLE_ARN: arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: "10"
@@ -42,6 +44,18 @@ jobs:
         run: |
           python -m compileall -q ToEnWikipediaBot.py monitor.py scripts tests
           python -m unittest discover -s tests -v
+
+      - name: Build and verify the ARM64 Lambda dependencies
+        run: |
+          rm -rf arm-package-test
+          python -m pip install \
+            --platform "${PIP_LAMBDA_PLATFORM}" \
+            --implementation cp \
+            --python-version "${PYTHON_VERSION}" \
+            --only-binary=:all: \
+            --target arm-package-test \
+            -r requirements.txt
+          python scripts/verify_lambda_package.py arm-package-test "${LAMBDA_ARCHITECTURE}"
 
   dependency-review:
     name: Review dependency changes
@@ -96,7 +110,7 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
-      - name: Attempt non-blocking GitHub OIDC bootstrap
+      - name: Attempt GitHub OIDC bootstrap
         id: bootstrap
         if: steps.oidc.outcome == 'failure'
         continue-on-error: true
@@ -106,6 +120,12 @@ jobs:
         run: |
           python -m pip install --upgrade boto3
           python scripts/bootstrap_oidc_v2.py
+
+      - name: Stop safely when bootstrap permissions are missing
+        if: steps.oidc.outcome == 'failure' && steps.bootstrap.outcome == 'failure'
+        run: |
+          echo "::error title=One-time AWS IAM bootstrap required::No production resource was changed. Attach aws/github-deployer-oidc-bootstrap-policy.json to the GitHub_Deployer IAM user with an administrator session, then re-run this workflow."
+          exit 1
 
       - name: Switch to short-lived OIDC credentials when bootstrap succeeds
         if: steps.oidc.outcome == 'failure' && steps.bootstrap.outcome == 'success'
@@ -117,9 +137,8 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
-      - name: Refresh OIDC policy without blocking production
+      - name: Refresh repository-scoped OIDC policy
         if: steps.oidc.outcome == 'success' || steps.bootstrap.outcome == 'success'
-        continue-on-error: true
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
@@ -128,46 +147,67 @@ jobs:
           python scripts/bootstrap_oidc_v2.py
 
       - name: Record credential migration status
-        run: |
-          if [ "${{ steps.oidc.outcome }}" = "success" ] || [ "${{ steps.bootstrap.outcome }}" = "success" ]; then
-            echo "AWS deployment is using short-lived GitHub OIDC credentials."
-          else
-            echo "::warning title=GitHub OIDC migration deferred::Deployment is continuing with the existing AWS secrets. Reliability and monitoring rollout is not blocked; IAM/OIDC can be completed separately."
-          fi
+        run: echo "AWS deployment is using short-lived repository-scoped GitHub OIDC credentials."
 
-      - name: Build new, monitor, and rollback Lambda packages
+      - name: Build ARM64 bot, monitor, and architecture-aware rollback packages
         run: |
           python -m pip install --upgrade pip boto3
-          rm -rf package monitor-package legacy-package
-          mkdir -p package monitor-package
-          python -m pip install --only-binary=:all: -r requirements.txt -t package
-          cp ToEnWikipediaBot.py package/
-          (cd package && zip -q -r ../package.zip .)
+          rm -rf package-arm64 monitor-package legacy-arm64-package legacy-x86-package
+          mkdir -p package-arm64 monitor-package legacy-x86-package
+
+          python -m pip install \
+            --platform "${PIP_LAMBDA_PLATFORM}" \
+            --implementation cp \
+            --python-version "${PYTHON_VERSION}" \
+            --only-binary=:all: \
+            --target package-arm64 \
+            -r requirements.txt
+          cp ToEnWikipediaBot.py package-arm64/
+          python scripts/verify_lambda_package.py package-arm64 "${LAMBDA_ARCHITECTURE}"
+          (cd package-arm64 && zip -q -r ../package-arm64.zip .)
+
+          cp -a package-arm64 legacy-arm64-package
+          git show "${LAST_KNOWN_GOOD_COMMIT}:ToEnWikipediaBot.py" > legacy-arm64-package/ToEnWikipediaBot.py
+          python scripts/verify_lambda_package.py legacy-arm64-package "${LAMBDA_ARCHITECTURE}"
+          (cd legacy-arm64-package && zip -q -r ../legacy-arm64-package.zip .)
+
+          python -m pip install --only-binary=:all: -r requirements.txt -t legacy-x86-package
+          git show "${LAST_KNOWN_GOOD_COMMIT}:ToEnWikipediaBot.py" > legacy-x86-package/ToEnWikipediaBot.py
+          (cd legacy-x86-package && zip -q -r ../legacy-x86-package.zip .)
 
           cp monitor.py monitor-package/
           (cd monitor-package && zip -q -r ../monitor-package.zip .)
-
-          cp -a package legacy-package
-          git show "${LAST_KNOWN_GOOD_COMMIT}:ToEnWikipediaBot.py" > legacy-package/ToEnWikipediaBot.py
-          (cd legacy-package && zip -q -r ../legacy-package.zip .)
 
       - name: Restore authenticated known-good service before migration
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: |
+          CURRENT_ARCHITECTURE="$(aws lambda get-function-configuration --function-name "${LAMBDA_FUNCTION_NAME}" --query 'Architectures[0]' --output text)"
+          if [ "${CURRENT_ARCHITECTURE}" = "arm64" ]; then
+            ROLLBACK_PACKAGE=legacy-arm64-package.zip
+          else
+            ROLLBACK_PACKAGE=legacy-x86-package.zip
+          fi
           aws lambda update-function-code \
             --function-name "${LAMBDA_FUNCTION_NAME}" \
-            --zip-file fileb://legacy-package.zip
+            --zip-file "fileb://${ROLLBACK_PACKAGE}"
           aws lambda wait function-updated-v2 \
             --function-name "${LAMBDA_FUNCTION_NAME}"
           python scripts/restore_service.py
+
+      - name: Validate ARM64 on the worker and migrate the live Lambda
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          BOT_ZIP_PATH: package-arm64.zip
+        run: python scripts/deploy_arm64.py
 
       - name: Prepare queues, state, monitoring, alerts, and authenticated webhook
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
-          BOT_ZIP_PATH: package.zip
+          BOT_ZIP_PATH: package-arm64.zip
           MONITOR_ZIP_PATH: monitor-package.zip
           GITHUB_SHA: ${{ github.sha }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
@@ -177,16 +217,6 @@ jobs:
           STATUS_BOT_TOKEN: ${{ secrets.STATUS_BOT_TOKEN }}
           MONTHLY_BUDGET_USD: ${{ vars.MONTHLY_BUDGET_USD || '1' }}
         run: python scripts/configure_aws.py
-
-      - name: Deploy durable bot code after dependencies are ready
-        env:
-          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
-        run: |
-          aws lambda update-function-code \
-            --function-name "${LAMBDA_FUNCTION_NAME}" \
-            --zip-file fileb://package.zip
-          aws lambda wait function-updated-v2 \
-            --function-name "${LAMBDA_FUNCTION_NAME}"
 
       - name: Run immediate external health check
         run: |
@@ -222,16 +252,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Roll back to authenticated known-good service on any deployment failure
-        if: ${{ failure() && hashFiles('legacy-package.zip') != '' }}
+      - name: Roll back to an architecture-compatible known-good service
+        if: ${{ failure() && hashFiles('legacy-x86-package.zip') != '' }}
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: |
-          echo "::warning title=Production rollback::Restoring the last known-good synchronous Lambda after a failed migration."
+          echo "::warning title=Production rollback::Restoring the last known-good synchronous Lambda with dependencies matching its current architecture."
+          CURRENT_ARCHITECTURE="$(aws lambda get-function-configuration --function-name "${LAMBDA_FUNCTION_NAME}" --query 'Architectures[0]' --output text)"
+          if [ "${CURRENT_ARCHITECTURE}" = "arm64" ]; then
+            ROLLBACK_PACKAGE=legacy-arm64-package.zip
+          else
+            ROLLBACK_PACKAGE=legacy-x86-package.zip
+          fi
           aws lambda update-function-code \
             --function-name "${LAMBDA_FUNCTION_NAME}" \
-            --zip-file fileb://legacy-package.zip
+            --zip-file "fileb://${ROLLBACK_PACKAGE}"
           aws lambda wait function-updated-v2 \
             --function-name "${LAMBDA_FUNCTION_NAME}"
           python scripts/restore_service.py
