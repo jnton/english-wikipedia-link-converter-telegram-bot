@@ -16,6 +16,8 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.13"
+  LAMBDA_ARCHITECTURE: arm64
+  PIP_LAMBDA_PLATFORM: manylinux2014_aarch64
   AWS_DEPLOY_ROLE_ARN: arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: "10"
@@ -45,6 +47,18 @@ jobs:
         run: |
           python -m compileall -q ToEnWikipediaBot.py monitor.py scripts tests
           python -m unittest discover -s tests -v
+
+      - name: Build and verify the ARM64 Lambda package
+        run: |
+          rm -rf arm-package-test
+          python -m pip install \
+            --platform "${PIP_LAMBDA_PLATFORM}" \
+            --implementation cp \
+            --python-version "${PYTHON_VERSION}" \
+            --only-binary=:all: \
+            --target arm-package-test \
+            -r requirements.txt
+          python scripts/verify_lambda_package.py arm-package-test "${LAMBDA_ARCHITECTURE}"
 
   dependency-review:
     name: Review dependency changes
@@ -124,23 +138,32 @@ jobs:
           python -m pip install --upgrade boto3
           python scripts/bootstrap_oidc_v2.py
 
-      - name: Build Lambda packages with the runtime Python version
+      - name: Build ARM64 Lambda packages with Python 3.13 wheels
         run: |
           python -m pip install --upgrade pip
+          rm -rf package monitor-package
           mkdir -p package monitor-package
-          python -m pip install --only-binary=:all: -r requirements.txt -t package
+          python -m pip install \
+            --platform "${PIP_LAMBDA_PLATFORM}" \
+            --implementation cp \
+            --python-version "${PYTHON_VERSION}" \
+            --only-binary=:all: \
+            --target package \
+            -r requirements.txt
           cp ToEnWikipediaBot.py package/
+          python scripts/verify_lambda_package.py package "${LAMBDA_ARCHITECTURE}"
           (cd package && zip -q -r ../package.zip .)
           cp monitor.py monitor-package/
           (cd monitor-package && zip -q -r ../monitor-package.zip .)
 
-      - name: Deploy bot code
+      - name: Validate ARM64 on the worker and migrate the live Lambda
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          BOT_ZIP_PATH: package.zip
         run: |
-          aws lambda update-function-code \
-            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
-            --zip-file fileb://package.zip
-          aws lambda wait function-updated-v2 \
-            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}"
+          python -m pip install --upgrade boto3
+          python scripts/deploy_arm64.py
 
       - name: Configure queues, deduplication, monitoring, alerts, and webhook security
         env:
