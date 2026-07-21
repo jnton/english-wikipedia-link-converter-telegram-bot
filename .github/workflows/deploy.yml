@@ -87,7 +87,7 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
-      - name: Bootstrap GitHub OIDC with the existing AWS keys
+      - name: Use existing AWS deployment credentials when OIDC is unavailable
         if: steps.oidc.outcome == 'failure'
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -97,8 +97,10 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
-      - name: Create the least-privilege OIDC deployment role
+      - name: Attempt non-blocking GitHub OIDC bootstrap
+        id: bootstrap
         if: steps.oidc.outcome == 'failure'
+        continue-on-error: true
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
@@ -106,8 +108,8 @@ jobs:
           python -m pip install --upgrade boto3
           python scripts/bootstrap_oidc_v2.py
 
-      - name: Switch deployment to short-lived OIDC credentials
-        if: steps.oidc.outcome == 'failure'
+      - name: Switch to short-lived OIDC credentials when bootstrap succeeds
+        if: steps.oidc.outcome == 'failure' && steps.bootstrap.outcome == 'success'
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
@@ -116,13 +118,23 @@ jobs:
           mask-aws-account-id: true
           unset-current-credentials: true
 
-      - name: Refresh the least-privilege OIDC deployment policy
+      - name: Refresh OIDC policy without blocking production
+        if: steps.oidc.outcome == 'success' || steps.bootstrap.outcome == 'success'
+        continue-on-error: true
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: |
           python -m pip install --upgrade boto3
           python scripts/bootstrap_oidc_v2.py
+
+      - name: Record credential migration status
+        run: |
+          if [ "${{ steps.oidc.outcome }}" = "success" ] || [ "${{ steps.bootstrap.outcome }}" = "success" ]; then
+            echo "AWS deployment is using short-lived GitHub OIDC credentials."
+          else
+            echo "::warning title=GitHub OIDC migration deferred::Deployment is continuing with the existing AWS secrets. Reliability and monitoring rollout is not blocked; IAM/OIDC can be completed separately."
+          fi
 
       - name: Build Lambda packages with the runtime Python version
         run: |
