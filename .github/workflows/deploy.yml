@@ -19,6 +19,7 @@ env:
   AWS_DEPLOY_ROLE_ARN: arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: "10"
+  LAST_KNOWN_GOOD_COMMIT: 28dd94002753075a9fab0f5bd7f3d342a84e04d8
 
 jobs:
   test:
@@ -64,11 +65,13 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     environment: production
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -136,25 +139,35 @@ jobs:
             echo "::warning title=GitHub OIDC migration deferred::Deployment is continuing with the existing AWS secrets. Reliability and monitoring rollout is not blocked; IAM/OIDC can be completed separately."
           fi
 
-      - name: Build Lambda packages with the runtime Python version
+      - name: Build new, monitor, and rollback Lambda packages
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip boto3
+          rm -rf package monitor-package legacy-package
           mkdir -p package monitor-package
           python -m pip install --only-binary=:all: -r requirements.txt -t package
           cp ToEnWikipediaBot.py package/
           (cd package && zip -q -r ../package.zip .)
+
           cp monitor.py monitor-package/
           (cd monitor-package && zip -q -r ../monitor-package.zip .)
 
-      - name: Deploy bot code
+          cp -a package legacy-package
+          git show "${LAST_KNOWN_GOOD_COMMIT}:ToEnWikipediaBot.py" > legacy-package/ToEnWikipediaBot.py
+          (cd legacy-package && zip -q -r ../legacy-package.zip .)
+
+      - name: Restore authenticated known-good service before migration
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: |
           aws lambda update-function-code \
-            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
-            --zip-file fileb://package.zip
+            --function-name "${LAMBDA_FUNCTION_NAME}" \
+            --zip-file fileb://legacy-package.zip
           aws lambda wait function-updated-v2 \
-            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}"
+            --function-name "${LAMBDA_FUNCTION_NAME}"
+          python scripts/restore_service.py
 
-      - name: Configure queues, deduplication, monitoring, alerts, and webhook security
+      - name: Prepare queues, state, monitoring, alerts, and authenticated webhook
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
@@ -167,9 +180,17 @@ jobs:
           STATUS_CHANNEL_URL: ${{ secrets.STATUS_CHANNEL_URL }}
           STATUS_BOT_TOKEN: ${{ secrets.STATUS_BOT_TOKEN }}
           MONTHLY_BUDGET_USD: ${{ vars.MONTHLY_BUDGET_USD || '1' }}
+        run: python scripts/configure_aws.py
+
+      - name: Deploy durable bot code after dependencies are ready
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: |
-          python -m pip install --upgrade boto3
-          python scripts/configure_aws.py
+          aws lambda update-function-code \
+            --function-name "${LAMBDA_FUNCTION_NAME}" \
+            --zip-file fileb://package.zip
+          aws lambda wait function-updated-v2 \
+            --function-name "${LAMBDA_FUNCTION_NAME}"
 
       - name: Run immediate external health check
         run: |
@@ -187,3 +208,23 @@ jobs:
           if not result.get("endpoint_ok") or not result.get("webhook_ok"):
               raise SystemExit(f"Post-deployment endpoint/webhook check failed: {result}")
           PY
+
+      - name: Remove legacy API Gateway route after smoke test
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: python scripts/finalize_cutover.py
+
+      - name: Roll back to authenticated known-good service on any deployment failure
+        if: ${{ failure() && hashFiles('legacy-package.zip') != '' }}
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          echo "::warning title=Production rollback::Restoring the last known-good synchronous Lambda after a failed migration."
+          aws lambda update-function-code \
+            --function-name "${LAMBDA_FUNCTION_NAME}" \
+            --zip-file fileb://legacy-package.zip
+          aws lambda wait function-updated-v2 \
+            --function-name "${LAMBDA_FUNCTION_NAME}"
+          python scripts/restore_service.py
