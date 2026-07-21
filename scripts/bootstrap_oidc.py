@@ -58,6 +58,7 @@ def trust_policy(provider_arn: str) -> dict:
 def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> dict:
     lambda_arns = [
         f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBot",
+        f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker",
         f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotMonitor",
     ]
     managed_role_arns = [
@@ -101,7 +102,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Resource": "*",
                 "Condition": {
                     "ArnEquals": {
-                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBot"
+                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker"
                     }
                 },
             },
@@ -112,7 +113,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Resource": f"arn:aws:lambda:{region}:{account_id}:event-source-mapping:*",
                 "Condition": {
                     "ArnEquals": {
-                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBot"
+                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker"
                     }
                 },
             },
@@ -143,6 +144,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                     "dynamodb:DescribeTable",
                     "dynamodb:DescribeTimeToLive",
                     "dynamodb:UpdateTimeToLive",
+                    "dynamodb:UpdateTable",
                     "dynamodb:TagResource",
                 ],
                 "Resource": f"arn:aws:dynamodb:{region}:{account_id}:table/ToEnWikipediaBotState",
@@ -165,6 +167,8 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Effect": "Allow",
                 "Action": [
                     "cloudwatch:PutMetricAlarm",
+                    "cloudwatch:DescribeAlarms",
+                    "cloudwatch:DeleteAlarms",
                     "cloudwatch:TagResource",
                     "logs:CreateLogGroup",
                     "logs:PutRetentionPolicy",
@@ -206,6 +210,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Effect": "Allow",
                 "Action": [
                     "budgets:DescribeBudget",
+                    "budgets:DescribeBudgets",
                     "budgets:CreateBudget",
                 ],
                 "Resource": "*",
