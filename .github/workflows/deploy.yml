@@ -1,4 +1,4 @@
-name: Test and deploy Telegram bot
+name: Test, secure, and deploy Telegram bot
 
 on:
   pull_request:
@@ -8,17 +8,21 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: lambda-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  PYTHON_VERSION: "3.14"
+  PYTHON_VERSION: "3.13"
+  AWS_DEPLOY_ROLE_ARN: arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot
+  AWS_RETRY_MODE: standard
+  AWS_MAX_ATTEMPTS: "10"
 
 jobs:
   test:
-    name: Test on Python 3.14
+    name: Test on Python 3.13
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -38,7 +42,7 @@ jobs:
 
       - name: Compile and run tests
         run: |
-          python -m compileall -q ToEnWikipediaBot.py tests
+          python -m compileall -q ToEnWikipediaBot.py monitor.py scripts tests
           python -m unittest discover -s tests -v
 
   dependency-review:
@@ -55,11 +59,12 @@ jobs:
           fail-on-severity: high
 
   deploy:
-    name: Deploy to AWS Lambda
+    name: Deploy free-tier architecture
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    environment: production
 
     steps:
       - uses: actions/checkout@v7
@@ -70,26 +75,102 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Build Lambda package
-        run: |
-          python -m pip install --upgrade pip
-          mkdir -p package
-          python -m pip install --only-binary=:all: -r requirements.txt -t package
-          cp ToEnWikipediaBot.py package/
-          cd package
-          zip -q -r ../package.zip .
+      - name: Try short-lived AWS credentials through GitHub OIDC
+        id: oidc
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: ToEnWikipediaBotDeploy
+          mask-aws-account-id: true
+          unset-current-credentials: true
 
-      - name: Configure AWS credentials
+      - name: Bootstrap GitHub OIDC with the existing AWS keys
+        if: steps.oidc.outcome == 'failure'
         uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
           mask-aws-account-id: true
+          unset-current-credentials: true
 
-      - name: Deploy package
+      - name: Create the least-privilege OIDC deployment role
+        if: steps.oidc.outcome == 'failure'
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          python -m pip install --upgrade boto3
+          python scripts/bootstrap_oidc.py
+
+      - name: Switch deployment to short-lived OIDC credentials
+        if: steps.oidc.outcome == 'failure'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: ToEnWikipediaBotDeploy
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Refresh the least-privilege OIDC deployment policy
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          python -m pip install --upgrade boto3
+          python scripts/bootstrap_oidc.py
+
+      - name: Build Lambda packages with the runtime Python version
+        run: |
+          python -m pip install --upgrade pip
+          mkdir -p package monitor-package
+          python -m pip install --only-binary=:all: -r requirements.txt -t package
+          cp ToEnWikipediaBot.py package/
+          (cd package && zip -q -r ../package.zip .)
+          cp monitor.py monitor-package/
+          (cd monitor-package && zip -q -r ../monitor-package.zip .)
+
+      - name: Deploy bot code
         run: |
           aws lambda update-function-code \
             --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
-            --zip-file fileb://package.zip \
-            --publish
+            --zip-file fileb://package.zip
+          aws lambda wait function-updated-v2 \
+            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}"
+
+      - name: Configure queues, deduplication, monitoring, alerts, and webhook security
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          BOT_ZIP_PATH: package.zip
+          MONITOR_ZIP_PATH: monitor-package.zip
+          GITHUB_SHA: ${{ github.sha }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          STATUS_CHANNEL_ID: ${{ secrets.STATUS_CHANNEL_ID }}
+          STATUS_CHANNEL_URL: ${{ secrets.STATUS_CHANNEL_URL }}
+          STATUS_BOT_TOKEN: ${{ secrets.STATUS_BOT_TOKEN }}
+          MONTHLY_BUDGET_USD: ${{ vars.MONTHLY_BUDGET_USD || '1' }}
+        run: |
+          python -m pip install --upgrade boto3
+          python scripts/configure_aws.py
+
+      - name: Run immediate external health check
+        run: |
+          aws lambda invoke \
+            --function-name ToEnWikipediaBotMonitor \
+            --payload '{"source":"deployment-smoke-test"}' \
+            --cli-binary-format raw-in-base64-out \
+            monitor-response.json
+          cat monitor-response.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("monitor-response.json").read_text())
+          if not result.get("endpoint_ok") or not result.get("webhook_ok"):
+              raise SystemExit(f"Post-deployment endpoint/webhook check failed: {result}")
+          PY
