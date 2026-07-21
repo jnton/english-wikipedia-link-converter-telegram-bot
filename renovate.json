@@ -6,11 +6,12 @@
     ":enableVulnerabilityAlerts"
   ],
   "timezone": "Europe/Rome",
-  "schedule": ["before 6am on Monday"],
+  "schedule": ["* 0-5 * * 1"],
   "prHourlyLimit": 2,
   "prConcurrentLimit": 5,
   "branchConcurrentLimit": 5,
   "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
   "automergeType": "pr",
   "platformAutomerge": false,
   "ignoreTests": false,
@@ -28,7 +29,7 @@
   },
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 6am on the first Monday of the month"],
+    "schedule": ["* 0-3 1 * *"],
     "automerge": true
   },
   "vulnerabilityAlerts": {
