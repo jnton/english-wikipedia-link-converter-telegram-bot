@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import boto3
 from botocore.exceptions import ClientError
@@ -10,23 +11,50 @@ REPOSITORY_ID = "782735600"
 ROLE_NAME = "GitHubActions-ToEnWikipediaBot"
 OIDC_URL = "https://token.actions.githubusercontent.com"
 OIDC_HOST = "token.actions.githubusercontent.com"
+# AWS normally validates GitHub through its trusted CA store. Supplying both
+# published GitHub intermediate thumbprints also keeps this bootstrap compatible
+# with SDK/IAM versions whose request model still requires ThumbprintList.
+GITHUB_OIDC_THUMBPRINTS = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+]
+IAM_CONSISTENCY_RETRIES = 8
+
+
+def _error_code(error: ClientError) -> str:
+    return error.response.get("Error", {}).get("Code", "Unknown")
 
 
 def ensure_provider(iam, account_id: str) -> str:
     provider_arn = f"arn:aws:iam::{account_id}:oidc-provider/{OIDC_HOST}"
     try:
-        iam.get_open_id_connect_provider(OpenIDConnectProviderArn=provider_arn)
+        provider = iam.get_open_id_connect_provider(
+            OpenIDConnectProviderArn=provider_arn
+        )
+        client_ids = set(provider.get("ClientIDList", []))
+        if "sts.amazonaws.com" not in client_ids:
+            iam.add_client_id_to_open_id_connect_provider(
+                OpenIDConnectProviderArn=provider_arn,
+                ClientID="sts.amazonaws.com",
+            )
         return provider_arn
     except ClientError as error:
-        if error.response["Error"]["Code"] != "NoSuchEntity":
+        if _error_code(error) != "NoSuchEntity":
             raise
 
-    response = iam.create_open_id_connect_provider(
-        Url=OIDC_URL,
-        ClientIDList=["sts.amazonaws.com"],
-        Tags=[{"Key": "Application", "Value": "ToEnWikipediaBot"}],
-    )
-    return response["OpenIDConnectProviderArn"]
+    try:
+        response = iam.create_open_id_connect_provider(
+            Url=OIDC_URL,
+            ClientIDList=["sts.amazonaws.com"],
+            ThumbprintList=GITHUB_OIDC_THUMBPRINTS,
+            Tags=[{"Key": "Application", "Value": "ToEnWikipediaBot"}],
+        )
+        return response["OpenIDConnectProviderArn"]
+    except ClientError as error:
+        # Another concurrent deployment may have created it after our lookup.
+        if _error_code(error) != "EntityAlreadyExists":
+            raise
+        return provider_arn
 
 
 def trust_policy(provider_arn: str) -> dict:
@@ -104,22 +132,14 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Effect": "Allow",
                 "Action": "lambda:CreateEventSourceMapping",
                 "Resource": "*",
-                "Condition": {
-                    "ArnEquals": {
-                        "lambda:FunctionArn": worker_arn,
-                    }
-                },
+                "Condition": {"ArnEquals": {"lambda:FunctionArn": worker_arn}},
             },
             {
                 "Sid": "UpdateBotEventSourceMapping",
                 "Effect": "Allow",
                 "Action": "lambda:UpdateEventSourceMapping",
                 "Resource": f"arn:aws:lambda:{region}:{account_id}:event-source-mapping:*",
-                "Condition": {
-                    "ArnEquals": {
-                        "lambda:FunctionArn": worker_arn,
-                    }
-                },
+                "Condition": {"ArnEquals": {"lambda:FunctionArn": worker_arn}},
             },
             {
                 "Sid": "QueueManagement",
@@ -193,7 +213,10 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
             {
                 "Sid": "ReadGitHubOidcProvider",
                 "Effect": "Allow",
-                "Action": "iam:GetOpenIDConnectProvider",
+                "Action": [
+                    "iam:GetOpenIDConnectProvider",
+                    "iam:AddClientIDToOpenIDConnectProvider",
+                ],
                 "Resource": f"arn:aws:iam::{account_id}:oidc-provider/{OIDC_HOST}",
             },
             {
@@ -223,6 +246,42 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
     }
 
 
+def ensure_deployment_role(iam, provider_arn: str) -> None:
+    policy_document = json.dumps(trust_policy(provider_arn))
+    for attempt in range(IAM_CONSISTENCY_RETRIES):
+        try:
+            try:
+                iam.get_role(RoleName=ROLE_NAME)
+                iam.update_assume_role_policy(
+                    RoleName=ROLE_NAME,
+                    PolicyDocument=policy_document,
+                )
+            except ClientError as error:
+                if _error_code(error) != "NoSuchEntity":
+                    raise
+                iam.create_role(
+                    RoleName=ROLE_NAME,
+                    Description="GitHub Actions deployment role for ToEnWikipediaBot",
+                    AssumeRolePolicyDocument=policy_document,
+                    Tags=[{"Key": "Application", "Value": "ToEnWikipediaBot"}],
+                )
+            return
+        except ClientError as error:
+            # IAM can briefly reject the newly-created OIDC provider as an
+            # invalid principal while the provider propagates globally.
+            code = _error_code(error)
+            message = error.response.get("Error", {}).get("Message", "")
+            retryable = code in {
+                "InvalidInput",
+                "MalformedPolicyDocument",
+                "NoSuchEntity",
+                "ServiceFailure",
+            } or "principal" in message.lower()
+            if not retryable or attempt == IAM_CONSISTENCY_RETRIES - 1:
+                raise
+            time.sleep(min(2 ** attempt, 15))
+
+
 def main() -> None:
     region = os.environ["AWS_REGION"]
     function_name = os.getenv("LAMBDA_FUNCTION_NAME", "ToEnWikipediaBot")
@@ -235,23 +294,7 @@ def main() -> None:
     )["Role"]
 
     provider_arn = ensure_provider(iam, account_id)
-    assume_role_policy = trust_policy(provider_arn)
-    try:
-        iam.get_role(RoleName=ROLE_NAME)
-        iam.update_assume_role_policy(
-            RoleName=ROLE_NAME,
-            PolicyDocument=json.dumps(assume_role_policy),
-        )
-    except ClientError as error:
-        if error.response["Error"]["Code"] != "NoSuchEntity":
-            raise
-        iam.create_role(
-            RoleName=ROLE_NAME,
-            Description="GitHub Actions deployment role for ToEnWikipediaBot",
-            AssumeRolePolicyDocument=json.dumps(assume_role_policy),
-            Tags=[{"Key": "Application", "Value": "ToEnWikipediaBot"}],
-        )
-
+    ensure_deployment_role(iam, provider_arn)
     iam.put_role_policy(
         RoleName=ROLE_NAME,
         PolicyName="ToEnWikipediaBotDeployment",
