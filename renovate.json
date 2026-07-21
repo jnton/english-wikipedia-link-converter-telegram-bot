@@ -1,13 +1,59 @@
 {
-  "extends": ["config:base"],
-  "prHourlyLimit": 0,
-  "prConcurrentLimit": 0,
-  "pip_requirements": {
-    "fileMatch": ["^requirements\\.txt$"]
-  },
-  "automerge": true,
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":enableVulnerabilityAlerts"
+  ],
+  "timezone": "Europe/Rome",
+  "schedule": ["before 6am on Monday"],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
+  "branchConcurrentLimit": 5,
+  "minimumReleaseAge": "7 days",
   "automergeType": "pr",
-  "dependencyDashboard": true,
-  "commitMessagePrefix": "chore: renovate"
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "rebaseWhen": "behind-base-branch",
+  "pinDigests": true,
+  "constraints": {
+    "python": "==3.14"
+  },
+  "enabledManagers": ["pip-compile", "github-actions"],
+  "pip-compile": {
+    "managerFilePatterns": ["/(^|/)requirements\\.txt$/"]
+  },
+  "pip_requirements": {
+    "enabled": false
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first Monday of the month"],
+    "automerge": true
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "schedule": ["at any time"],
+    "minimumReleaseAge": null,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "Automerge stable non-major updates after CI and release aging",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "description": "Require review for major and pre-1.0 updates",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Do not automerge updates to pre-1.0 dependencies",
+      "matchCurrentVersion": "/^0/",
+      "automerge": false
+    }
+  ]
 }
-
