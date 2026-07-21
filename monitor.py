@@ -112,8 +112,13 @@ def collect_health() -> dict[str, Any]:
     endpoint_version = "unknown"
     try:
         endpoint = _http_json(function_url.rstrip("/") + "/health")
-        endpoint_ok = endpoint.get("status") == "ok"
+        endpoint_ok = (
+            endpoint.get("status") == "ok"
+            and endpoint.get("queue_configured") is True
+        )
         endpoint_version = str(endpoint.get("version", "unknown"))
+        if not endpoint_ok:
+            reasons.append("Function URL is reachable but queue configuration is incomplete")
     except Exception as error:
         reasons.append(f"Function URL health check failed: {type(error).__name__}")
 
@@ -161,6 +166,8 @@ def collect_health() -> dict[str, Any]:
     healthy = endpoint_ok and webhook_ok and not reasons
     return {
         "status": "healthy" if healthy else "unhealthy",
+        "endpoint_ok": endpoint_ok,
+        "webhook_ok": webhook_ok,
         "checked_at": now,
         "pending_updates": pending_updates,
         "queue_depth": queue["visible"] + queue["in_flight"],
