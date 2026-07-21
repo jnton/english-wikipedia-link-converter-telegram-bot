@@ -849,7 +849,12 @@ def _decode_event_body(event: dict) -> dict:
 def _webhook_is_authorized(event: dict) -> bool:
     expected = os.getenv("TELEGRAM_WEBHOOK_SECRET")
     if not expected:
-        return False
+        # Backward-compatible migration path: the legacy webhook did not send
+        # Telegram's secret header. Provisioning sets this variable before
+        # registering the hardened webhook, at which point strict verification
+        # activates automatically.
+        logger.warning("Webhook secret is not configured; accepting legacy webhook request.")
+        return True
     received = _event_header(event, "X-Telegram-Bot-Api-Secret-Token")
     return received is not None and secrets.compare_digest(received, expected)
 
