@@ -1,0 +1,41 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadDeploymentIdentityAndLambdaRole",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "lambda:GetFunctionConfiguration"
+      ],
+      "Resource": [
+        "*",
+        "arn:aws:lambda:eu-north-1:590183760311:function:ToEnWikipediaBot"
+      ]
+    },
+    {
+      "Sid": "BootstrapGitHubActionsOidcProvider",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetOpenIDConnectProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:AddClientIDToOpenIDConnectProvider",
+        "iam:UpdateOpenIDConnectProviderThumbprint",
+        "iam:TagOpenIDConnectProvider"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BootstrapRepositoryScopedDeploymentRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:TagRole"
+      ],
+      "Resource": "arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot"
+    }
+  ]
+}
