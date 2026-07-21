@@ -9,6 +9,7 @@ from aws_setup.common import (
     QUEUE_NAME,
     SCHEDULE_NAME,
     STATE_TABLE,
+    WORKER_FUNCTION,
     client,
     role_name_from_arn,
 )
@@ -22,6 +23,7 @@ from aws_setup.lambda_resources import (
     ensure_event_source,
     ensure_function_url,
     ensure_monitor_function,
+    ensure_worker_function,
     update_main_function,
 )
 from aws_setup.monitoring import (
@@ -37,9 +39,11 @@ from aws_setup.telegram_setup import configure_webhook
 def main() -> None:
     region = os.environ["AWS_REGION"]
     function_name = os.getenv("LAMBDA_FUNCTION_NAME", "ToEnWikipediaBot")
+    bot_zip = Path(os.getenv("BOT_ZIP_PATH", "package.zip"))
     monitor_zip = Path(os.getenv("MONITOR_ZIP_PATH", "monitor-package.zip"))
-    if not monitor_zip.exists():
-        raise FileNotFoundError(monitor_zip)
+    for package in (bot_zip, monitor_zip):
+        if not package.exists():
+            raise FileNotFoundError(package)
 
     sts = client("sts", region)
     lambda_client = client("lambda", region)
@@ -102,7 +106,13 @@ def main() -> None:
         table_arn,
         topic_arn,
     )
-    update_main_function(lambda_client, function_name, shared_environment)
+    main_config = update_main_function(lambda_client, function_name, shared_environment)
+    worker_arn = ensure_worker_function(
+        lambda_client,
+        bot_zip,
+        main_config["Role"],
+        shared_environment,
+    )
 
     monitor_role_arn = put_monitor_policy(
         iam,
@@ -120,11 +130,11 @@ def main() -> None:
         shared_environment,
     )
 
-    ensure_event_source(lambda_client, function_name, queues["queue_arn"])
+    ensure_event_source(lambda_client, worker_arn, queues["queue_arn"])
     scheduler_role_arn = put_scheduler_policy(iam, monitor_arn)
     ensure_schedule(scheduler, monitor_arn, scheduler_role_arn)
     ensure_alarms(cloudwatch, function_name, topic_arn)
-    ensure_log_retention(logs, [function_name, MONITOR_FUNCTION])
+    ensure_log_retention(logs, [function_name, WORKER_FUNCTION, MONITOR_FUNCTION])
     ensure_budget(account_id, alert_email, budget_amount)
 
     webhook_info = configure_webhook(token, function_url, webhook_secret)
@@ -136,6 +146,7 @@ def main() -> None:
                 "queue": QUEUE_NAME,
                 "dead_letter_queue": DLQ_NAME,
                 "state_table": STATE_TABLE,
+                "worker_function": WORKER_FUNCTION,
                 "monitor_function": MONITOR_FUNCTION,
                 "health_schedule": f"{SCHEDULE_NAME}: rate(15 minutes)",
                 "pending_telegram_updates": webhook_info.get("pending_update_count", 0),
