@@ -8,6 +8,7 @@ from aws_setup.common import (
     MONITOR_FUNCTION,
     QUEUE_NAME,
     SCHEDULE_NAME,
+    WORKER_FUNCTION,
     client,
 )
 
@@ -76,6 +77,7 @@ def put_alarm(
 
 def ensure_alarms(cloudwatch, function_name: str, topic_arn: str) -> None:
     function_dimensions = [{"Name": "FunctionName", "Value": function_name}]
+    worker_dimensions = [{"Name": "FunctionName", "Value": WORKER_FUNCTION}]
     monitor_dimensions = [{"Name": "FunctionName", "Value": MONITOR_FUNCTION}]
     queue_dimensions = [{"Name": "QueueName", "Value": QUEUE_NAME}]
     dlq_dimensions = [{"Name": "QueueName", "Value": DLQ_NAME}]
@@ -96,6 +98,16 @@ def ensure_alarms(cloudwatch, function_name: str, topic_arn: str) -> None:
             "AWS/Lambda",
             "Errors",
             function_dimensions,
+            1,
+            300,
+            1,
+            "Sum",
+        ),
+        (
+            "ToEnWikipediaBot-WorkerErrors",
+            "AWS/Lambda",
+            "Errors",
+            worker_dimensions,
             1,
             300,
             1,
@@ -142,8 +154,29 @@ def ensure_alarms(cloudwatch, function_name: str, topic_arn: str) -> None:
             "Sum",
         ),
     ]
-    for alarm in alarms:
+    managed_names = [alarm[0] for alarm in alarms]
+    existing_names: set[str] = set()
+    paginator = cloudwatch.get_paginator("describe_alarms")
+    for page in paginator.paginate():
+        existing_names.update(
+            alarm["AlarmName"] for alarm in page.get("MetricAlarms", [])
+        )
+    other_alarm_count = len(existing_names.difference(managed_names))
+    allowed_managed = max(0, 10 - other_alarm_count)
+
+    for alarm in alarms[:allowed_managed]:
         put_alarm(cloudwatch, *alarm[:-1], topic_arn, statistic=alarm[-1])
+
+    excess_names = [
+        name for name in managed_names[allowed_managed:] if name in existing_names
+    ]
+    if excess_names:
+        cloudwatch.delete_alarms(AlarmNames=excess_names)
+    if allowed_managed < len(alarms):
+        print(
+            f"Skipped {len(alarms) - allowed_managed} bot alarm(s) to keep the "
+            "account at or below 10 standard CloudWatch alarms."
+        )
 
 
 def ensure_log_retention(logs, function_names: list[str]) -> None:
@@ -171,6 +204,17 @@ def ensure_budget(account_id: str, alert_email: str, amount: str) -> None:
     except ClientError as error:
         if error.response["Error"]["Code"] != "NotFoundException":
             raise
+
+    existing_budgets = budgets.describe_budgets(
+        AccountId=account_id,
+        MaxResults=100,
+    ).get("Budgets", [])
+    if len(existing_budgets) >= 2:
+        print(
+            "Skipped the bot budget because the account already has two budgets; "
+            "this avoids creating a potentially billable additional budget."
+        )
+        return
 
     subscriber = {"SubscriptionType": "EMAIL", "Address": alert_email}
     budgets.create_budget(
