@@ -17,7 +17,7 @@
   "rebaseWhen": "behind-base-branch",
   "pinDigests": true,
   "constraints": {
-    "python": "==3.14"
+    "python": "==3.13"
   },
   "enabledManagers": ["pip-compile", "github-actions"],
   "pip-compile": {
