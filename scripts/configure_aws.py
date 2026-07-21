@@ -36,6 +36,23 @@ from aws_setup.storage import ensure_queues, ensure_table, ensure_topic
 from aws_setup.telegram_setup import configure_webhook
 
 T = TypeVar("T")
+DIAGNOSTIC_PATH = Path(os.getenv("DEPLOYMENT_DIAGNOSTIC_PATH", "deployment-failure.json"))
+
+
+def _write_failure_diagnostic(stage: str, error: Exception) -> None:
+    response = getattr(error, "response", {}) or {}
+    aws_error = response.get("Error", {}) if isinstance(response, dict) else {}
+    metadata = response.get("ResponseMetadata", {}) if isinstance(response, dict) else {}
+    payload = {
+        "stage": stage,
+        "exception_type": type(error).__name__,
+        "message": str(error),
+        "operation_name": getattr(error, "operation_name", None),
+        "aws_error_code": aws_error.get("Code") if isinstance(aws_error, dict) else None,
+        "aws_error_message": aws_error.get("Message") if isinstance(aws_error, dict) else None,
+        "request_id": metadata.get("RequestId") if isinstance(metadata, dict) else None,
+    }
+    DIAGNOSTIC_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def run_stage(name: str, operation: Callable[..., T], *args, **kwargs) -> T:
@@ -46,6 +63,7 @@ def run_stage(name: str, operation: Callable[..., T], *args, **kwargs) -> T:
         print(f"Completed: {name}")
         return result
     except Exception as error:
+        _write_failure_diagnostic(name, error)
         message = str(error).replace("\r", " ").replace("\n", " ")
         print(
             f"::error title=AWS provisioning failed at {name}::"

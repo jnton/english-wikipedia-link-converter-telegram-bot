@@ -1,5 +1,7 @@
+import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -10,6 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import bootstrap_oidc
+import configure_aws
 import restore_service
 from aws_setup import monitoring, storage, telegram_setup
 
@@ -41,6 +44,39 @@ class DeploymentPolicyTests(unittest.TestCase):
             "budgets:DescribeBudgets",
             statements["BudgetMonitoring"]["Action"],
         )
+
+
+class DeploymentDiagnosticsTests(unittest.TestCase):
+    def test_failed_stage_writes_sanitized_aws_diagnostic(self):
+        error = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "not authorized",
+                },
+                "ResponseMetadata": {"RequestId": "request-123"},
+            },
+            "CreateQueue",
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            diagnostic_path = Path(directory) / "deployment-failure.json"
+            with patch.object(configure_aws, "DIAGNOSTIC_PATH", diagnostic_path):
+                with self.assertRaises(ClientError):
+                    configure_aws.run_stage(
+                        "Create or update SQS queues",
+                        Mock(side_effect=error),
+                    )
+
+            payload = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["stage"], "Create or update SQS queues")
+        self.assertEqual(payload["exception_type"], "ClientError")
+        self.assertEqual(payload["operation_name"], "CreateQueue")
+        self.assertEqual(payload["aws_error_code"], "AccessDeniedException")
+        self.assertEqual(payload["aws_error_message"], "not authorized")
+        self.assertEqual(payload["request_id"], "request-123")
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", json.dumps(payload))
 
 
 class TelegramProvisioningTests(unittest.TestCase):

@@ -10,10 +10,6 @@ permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: lambda-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
   PYTHON_VERSION: "3.13"
   AWS_DEPLOY_ROLE_ARN: arn:aws:iam::590183760311:role/GitHubActions-ToEnWikipediaBot
@@ -214,6 +210,17 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
         run: python scripts/finalize_cutover.py
+
+      - name: Upload sanitized deployment diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-deployment-diagnostics-${{ github.run_id }}
+          path: |
+            deployment-failure.json
+            monitor-response.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Roll back to authenticated known-good service on any deployment failure
         if: ${{ failure() && hashFiles('legacy-package.zip') != '' }}
