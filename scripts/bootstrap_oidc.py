@@ -61,6 +61,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
         f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker",
         f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotMonitor",
     ]
+    worker_arn = f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker"
     managed_role_arns = [
         execution_role_arn,
         f"arn:aws:iam::{account_id}:role/ToEnWikipediaBotMonitorRole",
@@ -93,16 +94,19 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Resource": lambda_arns,
             },
             {
-                "Sid": "CreateAndListBotEventSourceMapping",
+                "Sid": "ListBotEventSourceMappings",
                 "Effect": "Allow",
-                "Action": [
-                    "lambda:CreateEventSourceMapping",
-                    "lambda:ListEventSourceMappings",
-                ],
+                "Action": "lambda:ListEventSourceMappings",
+                "Resource": "*",
+            },
+            {
+                "Sid": "CreateBotEventSourceMapping",
+                "Effect": "Allow",
+                "Action": "lambda:CreateEventSourceMapping",
                 "Resource": "*",
                 "Condition": {
                     "ArnEquals": {
-                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker"
+                        "lambda:FunctionArn": worker_arn,
                     }
                 },
             },
@@ -113,7 +117,7 @@ def deployment_policy(account_id: str, region: str, execution_role_arn: str) -> 
                 "Resource": f"arn:aws:lambda:{region}:{account_id}:event-source-mapping:*",
                 "Condition": {
                     "ArnEquals": {
-                        "lambda:FunctionArn": f"arn:aws:lambda:{region}:{account_id}:function:ToEnWikipediaBotWorker"
+                        "lambda:FunctionArn": worker_arn,
                     }
                 },
             },
