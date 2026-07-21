@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import bootstrap_oidc
+import restore_service
 from aws_setup import monitoring, storage, telegram_setup
 
 
@@ -65,6 +67,65 @@ class TelegramProvisioningTests(unittest.TestCase):
         self.assertEqual(
             webhook["allowed_updates"],
             ["message", "channel_post", "inline_query"],
+        )
+
+
+class ServiceRestorationTests(unittest.TestCase):
+    def test_restore_updates_only_environment_and_registers_secret_webhook(self):
+        lambda_client = Mock()
+        lambda_client.get_function_configuration.return_value = {
+            "Environment": {
+                "Variables": {
+                    "TELEGRAM_BOT_TOKEN": "token",
+                    "EXISTING_VALUE": "preserved",
+                }
+            }
+        }
+        lambda_client.get_function_url_config.return_value = {
+            "FunctionUrl": "https://example.lambda-url.aws/"
+        }
+        waiter = Mock()
+        lambda_client.get_waiter.return_value = waiter
+
+        with patch.dict(
+            os.environ,
+            {
+                "AWS_REGION": "eu-north-1",
+                "LAMBDA_FUNCTION_NAME": "ToEnWikipediaBot",
+            },
+            clear=False,
+        ), patch.object(
+            restore_service,
+            "client",
+            return_value=lambda_client,
+        ), patch.object(
+            restore_service,
+            "configure_webhook",
+            return_value={"pending_update_count": 0},
+        ) as configure_webhook, patch.object(
+            restore_service.secrets,
+            "token_urlsafe",
+            return_value="generated-secret",
+        ):
+            restore_service.main()
+
+        update = lambda_client.update_function_configuration.call_args.kwargs
+        self.assertEqual(update["FunctionName"], "ToEnWikipediaBot")
+        variables = update["Environment"]["Variables"]
+        self.assertEqual(variables["EXISTING_VALUE"], "preserved")
+        self.assertEqual(variables["TELEGRAM_WEBHOOK_SECRET"], "generated-secret")
+        self.assertEqual(
+            variables["FUNCTION_URL"],
+            "https://example.lambda-url.aws/",
+        )
+        self.assertNotIn("Runtime", update)
+        self.assertNotIn("MemorySize", update)
+        self.assertNotIn("Timeout", update)
+        waiter.wait.assert_called_once_with(FunctionName="ToEnWikipediaBot")
+        configure_webhook.assert_called_once_with(
+            "token",
+            "https://example.lambda-url.aws/",
+            "generated-secret",
         )
 
 
