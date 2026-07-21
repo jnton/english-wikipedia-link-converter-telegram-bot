@@ -1,41 +1,95 @@
-name: Deploy Telegram Bot to AWS Lambda
+name: Test and deploy Telegram bot
 
 on:
+  pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lambda-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.14"
 
 jobs:
-  deploy:
+  test:
+    name: Test on Python 3.14
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile and run tests
+        run: |
+          python -m compileall -q ToEnWikipediaBot.py tests
+          python -m unittest discover -s tests -v
+
+  dependency-review:
+    name: Review dependency changes
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
 
-      - name: Set up Python 3.13
+  deploy:
+    name: Deploy to AWS Lambda
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.14'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Install dependencies into package/
+      - name: Build Lambda package
         run: |
+          python -m pip install --upgrade pip
           mkdir -p package
-          pip install -r requirements.txt -t package
-
-      - name: Copy bot code into package/
-        run: cp ToEnWikipediaBot.py package/
-
-      - name: Zip application
-        run: |
+          python -m pip install --only-binary=:all: -r requirements.txt -t package
+          cp ToEnWikipediaBot.py package/
           cd package
-          zip -r ../package.zip .
+          zip -q -r ../package.zip .
 
-      - name: Deploy to AWS Lambda
-        uses: appleboy/lambda-action@v0.2.0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws_access_key_id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region:            ${{ secrets.AWS_REGION }}
-          function_name:         ${{ secrets.LAMBDA_FUNCTION_NAME }}
-          zip_file:              package.zip
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy package
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
+            --zip-file fileb://package.zip \
+            --publish
